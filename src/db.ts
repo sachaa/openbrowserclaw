@@ -260,6 +260,28 @@ export function getAllConfig(): Promise<ConfigEntry[]> {
   );
 }
 
+/**
+ * Delete all messages for a given group.
+ */
+export function clearGroupMessages(groupId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = getDb().transaction('messages', 'readwrite');
+    const store = tx.objectStore('messages');
+    const index = store.index('by-group');
+    const request = index.openCursor(groupId);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      } else {
+        resolve();
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Build conversation messages for Claude API from stored messages
 // ---------------------------------------------------------------------------

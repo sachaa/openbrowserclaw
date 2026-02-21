@@ -9,7 +9,7 @@
 // Instead of Claude Agent SDK in a Linux container, we use raw Anthropic
 // API calls with a tool-use loop.
 
-import type { WorkerInbound, WorkerOutbound, InvokePayload, ConversationMessage, ThinkingLogEntry } from './types.js';
+import type { WorkerInbound, WorkerOutbound, InvokePayload, CompactPayload, ConversationMessage, ThinkingLogEntry, TokenUsage } from './types.js';
 import { TOOL_DEFINITIONS } from './tools.js';
 import { ANTHROPIC_API_URL, ANTHROPIC_API_VERSION, FETCH_MAX_RESPONSE } from './config.js';
 import { readGroupFile, writeGroupFile, listGroupFiles } from './storage.js';
@@ -25,7 +25,10 @@ self.onmessage = async (event: MessageEvent<WorkerInbound>) => {
 
   switch (type) {
     case 'invoke':
-      await handleInvoke(payload);
+      await handleInvoke(payload as InvokePayload);
+      break;
+    case 'compact':
+      await handleCompact(payload as CompactPayload);
       break;
     case 'cancel':
       // TODO: AbortController-based cancellation
@@ -80,6 +83,19 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
       }
 
       const result = await res.json();
+
+      // Emit token usage
+      if (result.usage) {
+        post({
+          type: 'token-usage',
+          payload: {
+            groupId,
+            inputTokens: result.usage.input_tokens || 0,
+            outputTokens: result.usage.output_tokens || 0,
+            contextLimit: getContextLimit(model),
+          },
+        });
+      }
 
       // Log any text blocks in the response (intermediate reasoning)
       for (const block of result.content) {
@@ -156,6 +172,73 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     post({ type: 'error', payload: { groupId, error: message } });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Context compaction — ask Claude to summarize the conversation
+// ---------------------------------------------------------------------------
+
+async function handleCompact(payload: CompactPayload): Promise<void> {
+  const { groupId, messages, systemPrompt, apiKey, model, maxTokens } = payload;
+
+  post({ type: 'typing', payload: { groupId } });
+  log(groupId, 'info', 'Compacting context', `Summarizing ${messages.length} messages`);
+
+  try {
+    const compactSystemPrompt = [
+      systemPrompt,
+      '',
+      '## COMPACTION TASK',
+      '',
+      'The conversation context is getting large. Produce a concise summary of the conversation so far.',
+      'Include key facts, decisions, user preferences, and any important context.',
+      'The summary will replace the full conversation history to stay within token limits.',
+      'Be thorough but concise — aim for the essential information only.',
+    ].join('\n');
+
+    const compactMessages: ConversationMessage[] = [
+      ...messages,
+      {
+        role: 'user' as const,
+        content: 'Please provide a concise summary of our entire conversation so far. Include all key facts, decisions, code discussed, and important context. This summary will replace the full history.',
+      },
+    ];
+
+    const body = {
+      model,
+      max_tokens: Math.min(maxTokens, 4096),
+      system: compactSystemPrompt,
+      messages: compactMessages,
+    };
+
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': ANTHROPIC_API_VERSION,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`Anthropic API error ${res.status}: ${errBody}`);
+    }
+
+    const result = await res.json();
+    const summary = result.content
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { text: string }) => b.text)
+      .join('');
+
+    log(groupId, 'info', 'Compaction complete', `Summary: ${summary.length} chars`);
+    post({ type: 'compact-done', payload: { groupId, summary } });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    post({ type: 'error', payload: { groupId, error: `Compaction failed: ${message}` } });
   }
 }
 
@@ -261,6 +344,14 @@ async function executeTool(
 
 function post(message: WorkerOutbound): void {
   (self as unknown as Worker).postMessage(message);
+}
+
+/** Map model names to their context window limits (tokens). */
+function getContextLimit(_model: string): number {
+  // Use the org rate limit (input tokens per minute) rather than the
+  // model’s theoretical context window so the bar reflects the real
+  // constraint the user will hit first.
+  return 30_000;
 }
 
 function log(

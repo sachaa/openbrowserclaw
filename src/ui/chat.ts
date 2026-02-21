@@ -5,7 +5,7 @@
 import { Orchestrator } from '../orchestrator.js';
 import { getRecentMessages } from '../db.js';
 import { DEFAULT_GROUP_ID, CONTEXT_WINDOW_SIZE } from '../config.js';
-import type { StoredMessage, OrchestratorState, ThinkingLogEntry } from '../types.js';
+import type { StoredMessage, OrchestratorState, ThinkingLogEntry, TokenUsage } from '../types.js';
 import { renderMarkdown } from '../markdown.js';
 import { el } from './app.js';
 
@@ -30,6 +30,11 @@ export class ChatUI {
   private activityToggleEl: HTMLElement | null = null;
   private activityExpanded = false;
   private activityEntries: ThinkingLogEntry[] = [];
+
+  // Context usage bar
+  private contextBarEl: HTMLElement | null = null;
+  private contextFillEl: HTMLElement | null = null;
+  private contextLabelEl: HTMLElement | null = null;
 
   constructor(orchestrator: Orchestrator) {
     this.orchestrator = orchestrator;
@@ -128,6 +133,49 @@ export class ChatUI {
   }
 
   /**
+   * Update the context usage progress bar.
+   */
+  updateTokenUsage(usage: TokenUsage): void {
+    if (usage.groupId !== this.activeGroupId) return;
+    if (!this.contextBarEl || !this.contextFillEl || !this.contextLabelEl) return;
+
+    const totalUsed = usage.inputTokens + usage.outputTokens;
+    const limit = usage.contextLimit;
+    const pct = Math.min((totalUsed / limit) * 100, 100);
+
+    this.contextFillEl.style.width = `${pct}%`;
+
+    // Color transitions: green -> yellow -> red
+    this.contextFillEl.classList.remove('context-fill-ok', 'context-fill-warn', 'context-fill-danger');
+    if (pct >= 80) {
+      this.contextFillEl.classList.add('context-fill-danger');
+    } else if (pct >= 60) {
+      this.contextFillEl.classList.add('context-fill-warn');
+    } else {
+      this.contextFillEl.classList.add('context-fill-ok');
+    }
+
+    const usedK = (totalUsed / 1000).toFixed(1);
+    const limitK = (limit / 1000).toFixed(0);
+    this.contextLabelEl.textContent = `${usedK}k / ${limitK}k tokens (${pct.toFixed(0)}%)`;
+    this.contextBarEl.style.display = 'flex';
+  }
+
+  /**
+   * Clear the displayed messages (used on session reset).
+   */
+  clearMessages(): void {
+    if (this.messagesEl) {
+      this.messagesEl.innerHTML = '';
+    }
+    this.activityEntries = [];
+    if (this.activityListEl) this.activityListEl.innerHTML = '';
+    // Reset context bar
+    if (this.contextBarEl) this.contextBarEl.style.display = 'none';
+    if (this.contextFillEl) this.contextFillEl.style.width = '0%';
+  }
+
+  /**
    * Load and display message history.
    */
   async loadHistory(): Promise<void> {
@@ -152,6 +200,47 @@ export class ChatUI {
   private render(): void {
     if (!this.container) return;
     this.container.innerHTML = '';
+
+    // Session actions toolbar
+    const actionsBar = el('div', 'chat-actions');
+
+    // Context usage progress bar
+    this.contextBarEl = el('div', 'context-bar');
+    this.contextBarEl.style.display = 'none';
+    const contextTrack = el('div', 'context-track');
+    this.contextFillEl = el('div', 'context-fill context-fill-ok');
+    contextTrack.appendChild(this.contextFillEl);
+    this.contextLabelEl = el('span', 'context-label');
+    this.contextLabelEl.textContent = '0k / 30k tokens';
+    this.contextBarEl.append(contextTrack, this.contextLabelEl);
+    actionsBar.appendChild(this.contextBarEl);
+
+    // Spacer to push buttons to the right
+    const spacer = el('div', 'chat-actions-spacer');
+    actionsBar.appendChild(spacer);
+
+    const compactBtn = document.createElement('button');
+    compactBtn.className = 'chat-action-btn';
+    compactBtn.title = 'Summarize conversation to reduce context size';
+    compactBtn.innerHTML = '📉 Compact';
+    compactBtn.addEventListener('click', () => {
+      if (confirm('Summarize the current conversation to reduce token usage? The full history will be replaced with a compact summary.')) {
+        this.orchestrator.compactContext(this.activeGroupId);
+      }
+    });
+
+    const newSessionBtn = document.createElement('button');
+    newSessionBtn.className = 'chat-action-btn chat-action-btn-danger';
+    newSessionBtn.title = 'Clear all messages and start fresh';
+    newSessionBtn.innerHTML = '🗑️ New Session';
+    newSessionBtn.addEventListener('click', () => {
+      if (confirm('Start a new session? This will clear all messages in the current conversation.')) {
+        this.orchestrator.newSession(this.activeGroupId);
+      }
+    });
+
+    actionsBar.append(compactBtn, newSessionBtn);
+    this.container.appendChild(actionsBar);
 
     // Messages area
     this.messagesEl = el('div', 'messages');

@@ -69,7 +69,17 @@ export interface Channel {
 /** Messages sent from main thread → Agent Worker */
 export type WorkerInbound =
   | { type: 'invoke'; payload: InvokePayload }
-  | { type: 'cancel'; payload: { groupId: string } };
+  | { type: 'cancel'; payload: { groupId: string } }
+  | { type: 'compact'; payload: CompactPayload };
+
+export interface CompactPayload {
+  groupId: string;
+  messages: ConversationMessage[];
+  systemPrompt: string;
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+}
 
 export interface InvokePayload {
   groupId: string;
@@ -86,7 +96,17 @@ export type WorkerOutbound =
   | { type: 'error'; payload: { groupId: string; error: string } }
   | { type: 'typing'; payload: { groupId: string } }
   | { type: 'tool-activity'; payload: { groupId: string; tool: string; status: string } }
-  | { type: 'thinking-log'; payload: ThinkingLogEntry };
+  | { type: 'thinking-log'; payload: ThinkingLogEntry }
+  | { type: 'compact-done'; payload: { groupId: string; summary: string } }
+  | { type: 'token-usage'; payload: TokenUsage };
+
+/** Token usage info from the API */
+export interface TokenUsage {
+  groupId: string;
+  inputTokens: number;
+  outputTokens: number;
+  contextLimit: number;
+}
 
 /** A single entry in the thinking activity log */
 export interface ThinkingLogEntry {

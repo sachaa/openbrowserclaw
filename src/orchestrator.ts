@@ -37,6 +37,7 @@ import {
   getConfig,
   setConfig,
   saveTask,
+  clearGroupMessages,
 } from './db.js';
 import { readGroupFile } from './storage.js';
 import { BrowserChatChannel } from './channels/browser-chat.js';
@@ -57,6 +58,9 @@ type EventMap = {
   'thinking-log': ThinkingLogEntry;
   'error': { groupId: string; error: string };
   'ready': void;
+  'session-reset': { groupId: string };
+  'context-compacted': { groupId: string; summary: string };
+  'token-usage': import('./types.js').TokenUsage;
 };
 
 type EventCallback<T> = (data: T) => void;
@@ -232,6 +236,63 @@ export class Orchestrator {
   }
 
   /**
+   * Start a completely new session — clears message history for the group.
+   */
+  async newSession(groupId: string = DEFAULT_GROUP_ID): Promise<void> {
+    // Clear messages from DB
+    await clearGroupMessages(groupId);
+    this.events.emit('session-reset', { groupId });
+  }
+
+  /**
+   * Compact (summarize) the current context to reduce token usage.
+   * Asks Claude to produce a summary, then replaces the history with it.
+   */
+  async compactContext(groupId: string = DEFAULT_GROUP_ID): Promise<void> {
+    if (!this.apiKey) {
+      this.events.emit('error', {
+        groupId,
+        error: 'API key not configured. Cannot compact context.',
+      });
+      return;
+    }
+
+    if (this.state !== 'idle') {
+      this.events.emit('error', {
+        groupId,
+        error: 'Cannot compact while processing. Wait for the current response to finish.',
+      });
+      return;
+    }
+
+    this.setState('thinking');
+    this.events.emit('typing', { groupId, typing: true });
+
+    // Load group memory
+    let memory = '';
+    try {
+      memory = await readGroupFile(groupId, 'CLAUDE.md');
+    } catch {
+      // No memory file yet
+    }
+
+    const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
+    const systemPrompt = buildSystemPrompt(this.assistantName, memory);
+
+    this.agentWorker.postMessage({
+      type: 'compact',
+      payload: {
+        groupId,
+        messages,
+        systemPrompt,
+        apiKey: this.apiKey,
+        model: this.model,
+        maxTokens: this.maxTokens,
+      },
+    });
+  }
+
+  /**
    * Shut down everything.
    */
   shutdown(): void {
@@ -380,7 +441,39 @@ export class Orchestrator {
         this.events.emit('thinking-log', msg.payload);
         break;
       }
+
+      case 'compact-done': {
+        await this.handleCompactDone(msg.payload.groupId, msg.payload.summary);
+        break;
+      }
+
+      case 'token-usage': {
+        this.events.emit('token-usage', msg.payload);
+        break;
+      }
     }
+  }
+
+  private async handleCompactDone(groupId: string, summary: string): Promise<void> {
+    // Clear old messages
+    await clearGroupMessages(groupId);
+
+    // Save the summary as a system-style message from the assistant
+    const stored: StoredMessage = {
+      id: ulid(),
+      groupId,
+      sender: this.assistantName,
+      content: `📝 **Context Compacted**\n\n${summary}`,
+      timestamp: Date.now(),
+      channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+      isFromMe: true,
+      isTrigger: false,
+    };
+    await saveMessage(stored);
+
+    this.events.emit('context-compacted', { groupId, summary });
+    this.events.emit('typing', { groupId, typing: false });
+    this.setState('idle');
   }
 
   private async deliverResponse(groupId: string, text: string): Promise<void> {

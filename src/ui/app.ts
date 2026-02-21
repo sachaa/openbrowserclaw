@@ -61,6 +61,19 @@ export class AppUI {
       this.chatUI.showError(error);
     });
 
+    this.orchestrator.events.on('session-reset', () => {
+      this.chatUI.clearMessages();
+    });
+
+    this.orchestrator.events.on('context-compacted', () => {
+      this.chatUI.clearMessages();
+      this.chatUI.loadHistory();
+    });
+
+    this.orchestrator.events.on('token-usage', (usage) => {
+      this.chatUI.updateTokenUsage(usage);
+    });
+
     // Initialize orchestrator
     try {
       await this.orchestrator.init();
@@ -96,7 +109,7 @@ export class AppUI {
     // Header
     const header = el('header', 'app-header');
     const logo = el('div', 'app-logo');
-    logo.textContent = '🦀 BrowserClaw';
+    logo.innerHTML = '<span class="app-logo-icon">🦀</span> BrowserClaw';
     header.appendChild(logo);
 
     const nav = el('nav', 'app-nav');
