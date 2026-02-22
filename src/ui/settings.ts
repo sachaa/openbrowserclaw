@@ -70,7 +70,12 @@ export class SettingsUI {
       });
 
       const hint = el('p', 'settings-hint');
-      hint.textContent = 'Get your key from console.anthropic.com. Stored locally in your browser.';
+      const link = document.createElement('a');
+      link.href = 'https://platform.claude.com/settings/keys';
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Get your API key here';
+      hint.append(link, '. Stored locally in your browser.');
 
       section.append(input, saveBtn, hint);
     }));

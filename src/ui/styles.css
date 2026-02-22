@@ -853,6 +853,16 @@ body {
   font-size: 11px;
 }
 
+.settings-hint a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-hint a:hover {
+  opacity: 0.85;
+}
+
 .settings-status {
   font-size: 13px;
   color: var(--accent);
