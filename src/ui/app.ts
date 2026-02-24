@@ -6,9 +6,10 @@ import { Orchestrator } from '../orchestrator.js';
 import { ChatUI } from './chat.js';
 import { SettingsUI } from './settings.js';
 import { TasksUI } from './tasks.js';
+import { FilesUI } from './files.js';
 import type { StoredMessage, ThinkingLogEntry } from '../types.js';
 
-export type View = 'chat' | 'settings' | 'tasks';
+export type View = 'chat' | 'settings' | 'tasks' | 'files';
 
 /**
  * Top-level UI controller. Manages the app shell, navigation,
@@ -19,6 +20,7 @@ export class AppUI {
   private chatUI: ChatUI;
   private settingsUI: SettingsUI;
   private tasksUI: TasksUI;
+  private filesUI: FilesUI;
   private currentView: View = 'chat';
   private root: HTMLElement;
 
@@ -28,6 +30,7 @@ export class AppUI {
     this.chatUI = new ChatUI(this.orchestrator);
     this.settingsUI = new SettingsUI(this.orchestrator, () => this.navigate('chat'));
     this.tasksUI = new TasksUI(this.orchestrator);
+    this.filesUI = new FilesUI();
   }
 
   /**
@@ -115,9 +118,10 @@ export class AppUI {
 
     const nav = el('nav', 'app-nav');
     const chatBtn = this.navButton('💬', 'Chat', 'chat');
+    const filesBtn = this.navButton('📂', 'Files', 'files');
     const tasksBtn = this.navButton('⏰', 'Tasks', 'tasks');
     const settingsBtn = this.navButton('⚙️', 'Settings', 'settings');
-    nav.append(chatBtn, tasksBtn, settingsBtn);
+    nav.append(chatBtn, filesBtn, tasksBtn, settingsBtn);
     header.appendChild(nav);
 
     this.root.appendChild(header);
@@ -134,11 +138,15 @@ export class AppUI {
     settingsView.id = 'view-settings';
     this.settingsUI.mount(settingsView);
 
+    const filesView = el('div', 'view');
+    filesView.id = 'view-files';
+    this.filesUI.mount(filesView);
+
     const tasksView = el('div', 'view');
     tasksView.id = 'view-tasks';
     this.tasksUI.mount(tasksView);
 
-    content.append(chatView, settingsView, tasksView);
+    content.append(chatView, filesView, settingsView, tasksView);
     this.root.appendChild(content);
 
     this.updateView();
@@ -155,7 +163,7 @@ export class AppUI {
 
   private updateView(): void {
     // Toggle view visibility
-    const views = ['chat', 'settings', 'tasks'] as const;
+    const views = ['chat', 'files', 'settings', 'tasks'] as const;
     for (const v of views) {
       const viewEl = document.getElementById(`view-${v}`);
       if (viewEl) {
