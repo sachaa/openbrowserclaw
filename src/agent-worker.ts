@@ -308,8 +308,7 @@ async function executeTool(
         return 'Memory updated successfully.';
 
       case 'create_task': {
-        // Post back to main thread to create the task
-        // We use a special message type that the orchestrator handles
+        // Post a dedicated message to the main thread to persist the task
         const taskData = {
           id: ulid(),
           groupId,
@@ -319,9 +318,8 @@ async function executeTool(
           lastRun: null,
           createdAt: Date.now(),
         };
-        // We can't access IndexedDB from a worker easily for tasks,
-        // so we encode the task as the result and let the orchestrator save it.
-        return `__TASK_CREATED__${JSON.stringify(taskData)}`;
+        post({ type: 'task-created', payload: { task: taskData } });
+        return `Task created successfully.\nSchedule: ${taskData.schedule}\nPrompt: ${taskData.prompt}`;
       }
 
       case 'javascript': {

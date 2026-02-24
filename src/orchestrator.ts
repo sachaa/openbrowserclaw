@@ -105,6 +105,7 @@ export class Orchestrator {
   private maxTokens: number = DEFAULT_MAX_TOKENS;
   private messageQueue: InboundMessage[] = [];
   private processing = false;
+  private pendingScheduledTasks = new Set<string>();
 
   /**
    * Initialize the orchestrator. Must be called before anything else.
@@ -375,10 +376,28 @@ export class Orchestrator {
     }
   }
 
-  private async invokeAgent(groupId: string, _triggerContent: string): Promise<void> {
+  private async invokeAgent(groupId: string, triggerContent: string): Promise<void> {
     this.setState('thinking');
     this.router.setTyping(groupId, true);
     this.events.emit('typing', { groupId, typing: true });
+
+    // If this is a scheduled task, save the prompt as a user message so
+    // it appears in conversation context and in the chat UI.
+    if (triggerContent.startsWith('[SCHEDULED TASK]')) {
+      this.pendingScheduledTasks.add(groupId);
+      const stored: StoredMessage = {
+        id: ulid(),
+        groupId,
+        sender: 'Scheduler',
+        content: triggerContent,
+        timestamp: Date.now(),
+        channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+        isFromMe: false,
+        isTrigger: true,
+      };
+      await saveMessage(stored);
+      this.events.emit('message', stored);
+    }
 
     // Load group memory
     let memory = '';
@@ -411,22 +430,17 @@ export class Orchestrator {
     switch (msg.type) {
       case 'response': {
         const { groupId, text } = msg.payload;
-
-        // Check for task creation
-        if (text.startsWith('__TASK_CREATED__')) {
-          const taskJson = text.slice('__TASK_CREATED__'.length);
-          try {
-            const task = JSON.parse(taskJson);
-            await saveTask(task);
-            const confirmText = `✅ Scheduled task created.\nSchedule: \`${task.schedule}\`\nPrompt: ${task.prompt}`;
-            await this.deliverResponse(groupId, confirmText);
-          } catch {
-            await this.deliverResponse(groupId, '⚠️ Failed to create scheduled task.');
-          }
-          break;
-        }
-
         await this.deliverResponse(groupId, text);
+        break;
+      }
+
+      case 'task-created': {
+        const { task } = msg.payload;
+        try {
+          await saveTask(task);
+        } catch (err) {
+          console.error('Failed to save task from agent:', err);
+        }
         break;
       }
 
@@ -504,6 +518,12 @@ export class Orchestrator {
     // Route to channel
     await this.router.send(groupId, text);
 
+    // Play notification chime for scheduled task responses
+    if (this.pendingScheduledTasks.has(groupId)) {
+      this.pendingScheduledTasks.delete(groupId);
+      playNotificationChime();
+    }
+
     // Emit for UI
     this.events.emit('message', stored);
     this.events.emit('typing', { groupId, typing: false });
@@ -542,4 +562,39 @@ function buildSystemPrompt(assistantName: string, memory: string): string {
   }
 
   return parts.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Notification chime (Web Audio API — no external files needed)
+// ---------------------------------------------------------------------------
+
+function playNotificationChime(): void {
+  try {
+    const ctx = new AudioContext();
+    const now = ctx.currentTime;
+
+    // Two-tone chime: C5 → E5
+    const frequencies = [523.25, 659.25];
+    for (let i = 0; i < frequencies.length; i++) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = frequencies[i];
+
+      gain.gain.setValueAtTime(0.3, now + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.4);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + i * 0.15);
+      osc.stop(now + i * 0.15 + 0.4);
+    }
+
+    // Clean up context after sounds finish
+    setTimeout(() => ctx.close(), 1000);
+  } catch {
+    // AudioContext may not be available — fail silently
+  }
 }

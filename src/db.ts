@@ -187,8 +187,11 @@ export function saveSession(session: Session): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export function saveTask(task: Task): Promise<void> {
+  // Store `enabled` as 0/1 so the IndexedDB 'by-enabled' index works
+  // (IDB exact-match key queries don't equate boolean true with number 1).
+  const record = { ...task, enabled: task.enabled ? 1 : 0 };
   return txPromise('tasks', 'readwrite', (store) =>
-    store.put(task),
+    store.put(record),
   ).then(() => undefined);
 }
 
@@ -203,8 +206,12 @@ export function getEnabledTasks(): Promise<Task[]> {
     const tx = getDb().transaction('tasks', 'readonly');
     const store = tx.objectStore('tasks');
     const index = store.index('by-enabled');
-    const request = index.getAll(1); // enabled = true (stored as 1)
-    request.onsuccess = () => resolve(request.result);
+    const request = index.getAll(1); // enabled = true (stored as 1 via saveTask)
+    request.onsuccess = () => {
+      // Convert numeric `enabled` back to boolean for the rest of the app
+      const tasks = (request.result as any[]).map((t) => ({ ...t, enabled: true }));
+      resolve(tasks);
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -212,6 +219,8 @@ export function getEnabledTasks(): Promise<Task[]> {
 export function getAllTasks(): Promise<Task[]> {
   return txPromise('tasks', 'readonly', (store) =>
     store.getAll(),
+  ).then((tasks: any[]) =>
+    tasks.map((t) => ({ ...t, enabled: !!t.enabled })),
   );
 }
 

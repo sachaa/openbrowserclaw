@@ -98,7 +98,8 @@ export type WorkerOutbound =
   | { type: 'tool-activity'; payload: { groupId: string; tool: string; status: string } }
   | { type: 'thinking-log'; payload: ThinkingLogEntry }
   | { type: 'compact-done'; payload: { groupId: string; summary: string } }
-  | { type: 'token-usage'; payload: TokenUsage };
+  | { type: 'token-usage'; payload: TokenUsage }
+  | { type: 'task-created'; payload: { task: Task } };
 
 /** Token usage info from the API */
 export interface TokenUsage {
