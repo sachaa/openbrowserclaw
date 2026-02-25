@@ -19,7 +19,7 @@ import type {
   Task,
   ConversationMessage,
   ThinkingLogEntry,
-} from './types.js';
+} from "./types.js";
 import {
   ASSISTANT_NAME,
   CONFIG_KEYS,
@@ -27,8 +27,10 @@ import {
   DEFAULT_GROUP_ID,
   DEFAULT_MAX_TOKENS,
   DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_OLLAMA_URL,
   buildTriggerPattern,
-} from './config.js';
+} from "./config.js";
 import {
   openDatabase,
   saveMessage,
@@ -38,30 +40,30 @@ import {
   setConfig,
   saveTask,
   clearGroupMessages,
-} from './db.js';
-import { readGroupFile } from './storage.js';
-import { encryptValue, decryptValue } from './crypto.js';
-import { BrowserChatChannel } from './channels/browser-chat.js';
-import { TelegramChannel } from './channels/telegram.js';
-import { Router } from './router.js';
-import { TaskScheduler } from './task-scheduler.js';
-import { ulid } from './ulid.js';
+} from "./db.js";
+import { readGroupFile } from "./storage.js";
+import { encryptValue, decryptValue } from "./crypto.js";
+import { BrowserChatChannel } from "./channels/browser-chat.js";
+import { TelegramChannel } from "./channels/telegram.js";
+import { Router } from "./router.js";
+import { TaskScheduler } from "./task-scheduler.js";
+import { ulid } from "./ulid.js";
 
 // ---------------------------------------------------------------------------
 // Event emitter for UI updates
 // ---------------------------------------------------------------------------
 
 type EventMap = {
-  'state-change': OrchestratorState;
-  'message': StoredMessage;
-  'typing': { groupId: string; typing: boolean };
-  'tool-activity': { groupId: string; tool: string; status: string };
-  'thinking-log': ThinkingLogEntry;
-  'error': { groupId: string; error: string };
-  'ready': void;
-  'session-reset': { groupId: string };
-  'context-compacted': { groupId: string; summary: string };
-  'token-usage': import('./types.js').TokenUsage;
+  "state-change": OrchestratorState;
+  message: StoredMessage;
+  typing: { groupId: string; typing: boolean };
+  "tool-activity": { groupId: string; tool: string; status: string };
+  "thinking-log": ThinkingLogEntry;
+  error: { groupId: string; error: string };
+  ready: void;
+  "session-reset": { groupId: string };
+  "context-compacted": { groupId: string; summary: string };
+  "token-usage": import("./types.js").TokenUsage;
 };
 
 type EventCallback<T> = (data: T) => void;
@@ -69,14 +71,20 @@ type EventCallback<T> = (data: T) => void;
 class EventBus {
   private listeners = new Map<string, Set<EventCallback<any>>>();
 
-  on<K extends keyof EventMap>(event: K, callback: EventCallback<EventMap[K]>): void {
+  on<K extends keyof EventMap>(
+    event: K,
+    callback: EventCallback<EventMap[K]>,
+  ): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event)!.add(callback);
   }
 
-  off<K extends keyof EventMap>(event: K, callback: EventCallback<EventMap[K]>): void {
+  off<K extends keyof EventMap>(
+    event: K,
+    callback: EventCallback<EventMap[K]>,
+  ): void {
     this.listeners.get(event)?.delete(callback);
   }
 
@@ -97,10 +105,12 @@ export class Orchestrator {
   private router!: Router;
   private scheduler!: TaskScheduler;
   private agentWorker!: Worker;
-  private state: OrchestratorState = 'idle';
+  private state: OrchestratorState = "idle";
   private triggerPattern!: RegExp;
   private assistantName: string = ASSISTANT_NAME;
-  private apiKey: string = '';
+  private provider: "anthropic" | "ollama" = DEFAULT_PROVIDER;
+  private ollamaUrl: string = DEFAULT_OLLAMA_URL;
+  private apiKey: string = "";
   private model: string = DEFAULT_MODEL;
   private maxTokens: number = DEFAULT_MAX_TOKENS;
   private messageQueue: InboundMessage[] = [];
@@ -115,19 +125,39 @@ export class Orchestrator {
     await openDatabase();
 
     // Load config
-    this.assistantName = (await getConfig(CONFIG_KEYS.ASSISTANT_NAME)) || ASSISTANT_NAME;
+    this.assistantName =
+      (await getConfig(CONFIG_KEYS.ASSISTANT_NAME)) || ASSISTANT_NAME;
     this.triggerPattern = buildTriggerPattern(this.assistantName);
+    this.provider =
+      ((await getConfig(CONFIG_KEYS.PROVIDER)) as "anthropic" | "ollama") ||
+      DEFAULT_PROVIDER;
+    this.ollamaUrl =
+      (await getConfig(CONFIG_KEYS.OLLAMA_URL)) || DEFAULT_OLLAMA_URL;
+
     const storedKey = await getConfig(CONFIG_KEYS.ANTHROPIC_API_KEY);
     if (storedKey) {
       try {
         this.apiKey = await decryptValue(storedKey);
       } catch {
         // Stored as plaintext from before encryption — clear it
-        this.apiKey = '';
-        await setConfig(CONFIG_KEYS.ANTHROPIC_API_KEY, '');
+        this.apiKey = "";
+        await setConfig(CONFIG_KEYS.ANTHROPIC_API_KEY, "");
       }
     }
     this.model = (await getConfig(CONFIG_KEYS.MODEL)) || DEFAULT_MODEL;
+
+    // Sanitize cross-provider model mismatches from older state
+    if (this.provider === "ollama" && this.model.startsWith("claude-")) {
+      this.model = "llama3.1";
+      await setConfig(CONFIG_KEYS.MODEL, this.model);
+    } else if (
+      this.provider === "anthropic" &&
+      !this.model.startsWith("claude-")
+    ) {
+      this.model = "claude-sonnet-4-6";
+      await setConfig(CONFIG_KEYS.MODEL, this.model);
+    }
+
     this.maxTokens = parseInt(
       (await getConfig(CONFIG_KEYS.MAX_TOKENS)) || String(DEFAULT_MAX_TOKENS),
       10,
@@ -151,14 +181,14 @@ export class Orchestrator {
 
     // Set up agent worker
     this.agentWorker = new Worker(
-      new URL('./agent-worker.ts', import.meta.url),
-      { type: 'module' },
+      new URL("./agent-worker.ts", import.meta.url),
+      { type: "module" },
     );
     this.agentWorker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
       this.handleWorkerMessage(event.data);
     };
     this.agentWorker.onerror = (err) => {
-      console.error('Agent worker error:', err);
+      console.error("Agent worker error:", err);
     };
 
     // Set up task scheduler
@@ -172,7 +202,7 @@ export class Orchestrator {
       // Display handled via events.emit('message', ...)
     });
 
-    this.events.emit('ready', undefined);
+    this.events.emit("ready", undefined);
   }
 
   /**
@@ -196,6 +226,36 @@ export class Orchestrator {
     this.apiKey = key;
     const encrypted = await encryptValue(key);
     await setConfig(CONFIG_KEYS.ANTHROPIC_API_KEY, encrypted);
+  }
+
+  /**
+   * Get current provider.
+   */
+  getProvider(): "anthropic" | "ollama" {
+    return this.provider;
+  }
+
+  /**
+   * Update the provider.
+   */
+  async setProvider(provider: "anthropic" | "ollama"): Promise<void> {
+    this.provider = provider;
+    await setConfig(CONFIG_KEYS.PROVIDER, provider);
+  }
+
+  /**
+   * Get current Ollama URL.
+   */
+  getOllamaUrl(): string {
+    return this.ollamaUrl;
+  }
+
+  /**
+   * Update the Ollama URL.
+   */
+  async setOllamaUrl(url: string): Promise<void> {
+    this.ollamaUrl = url;
+    await setConfig(CONFIG_KEYS.OLLAMA_URL, url);
   }
 
   /**
@@ -253,7 +313,7 @@ export class Orchestrator {
   async newSession(groupId: string = DEFAULT_GROUP_ID): Promise<void> {
     // Clear messages from DB
     await clearGroupMessages(groupId);
-    this.events.emit('session-reset', { groupId });
+    this.events.emit("session-reset", { groupId });
   }
 
   /**
@@ -262,42 +322,48 @@ export class Orchestrator {
    */
   async compactContext(groupId: string = DEFAULT_GROUP_ID): Promise<void> {
     if (!this.apiKey) {
-      this.events.emit('error', {
+      this.events.emit("error", {
         groupId,
-        error: 'API key not configured. Cannot compact context.',
+        error: "API key not configured. Cannot compact context.",
       });
       return;
     }
 
-    if (this.state !== 'idle') {
-      this.events.emit('error', {
+    if (this.state !== "idle") {
+      this.events.emit("error", {
         groupId,
-        error: 'Cannot compact while processing. Wait for the current response to finish.',
+        error:
+          "Cannot compact while processing. Wait for the current response to finish.",
       });
       return;
     }
 
-    this.setState('thinking');
-    this.events.emit('typing', { groupId, typing: true });
+    this.setState("thinking");
+    this.events.emit("typing", { groupId, typing: true });
 
     // Load group memory
-    let memory = '';
+    let memory = "";
     try {
-      memory = await readGroupFile(groupId, 'CLAUDE.md');
+      memory = await readGroupFile(groupId, "CLAUDE.md");
     } catch {
       // No memory file yet
     }
 
-    const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
+    const messages = await buildConversationMessages(
+      groupId,
+      CONTEXT_WINDOW_SIZE,
+    );
     const systemPrompt = buildSystemPrompt(this.assistantName, memory);
 
     this.agentWorker.postMessage({
-      type: 'compact',
+      type: "compact",
       payload: {
         groupId,
         messages,
         systemPrompt,
+        provider: this.provider,
         apiKey: this.apiKey,
+        ollamaUrl: this.ollamaUrl,
         model: this.model,
         maxTokens: this.maxTokens,
       },
@@ -319,7 +385,7 @@ export class Orchestrator {
 
   private setState(state: OrchestratorState): void {
     this.state = state;
-    this.events.emit('state-change', state);
+    this.events.emit("state-change", state);
   }
 
   private async enqueue(msg: InboundMessage): Promise<void> {
@@ -341,7 +407,7 @@ export class Orchestrator {
     }
 
     await saveMessage(stored);
-    this.events.emit('message', stored);
+    this.events.emit("message", stored);
 
     // Process queue
     this.processQueue();
@@ -350,12 +416,13 @@ export class Orchestrator {
   private async processQueue(): Promise<void> {
     if (this.processing) return;
     if (this.messageQueue.length === 0) return;
-    if (!this.apiKey) {
-      // Can't process without API key
+    if (!this.apiKey && this.provider === "anthropic") {
+      // Can't process without API key if using Anthropic
       const msg = this.messageQueue.shift()!;
-      this.events.emit('error', {
+      this.events.emit("error", {
         groupId: msg.groupId,
-        error: 'API key not configured. Go to Settings to add your Anthropic API key.',
+        error:
+          "API key not configured. Go to Settings to add your Anthropic API key.",
       });
       return;
     }
@@ -366,7 +433,7 @@ export class Orchestrator {
     try {
       await this.invokeAgent(msg.groupId, msg.content);
     } catch (err) {
-      console.error('Failed to invoke agent:', err);
+      console.error("Failed to invoke agent:", err);
     } finally {
       this.processing = false;
       // Process next in queue
@@ -376,50 +443,58 @@ export class Orchestrator {
     }
   }
 
-  private async invokeAgent(groupId: string, triggerContent: string): Promise<void> {
-    this.setState('thinking');
+  private async invokeAgent(
+    groupId: string,
+    triggerContent: string,
+  ): Promise<void> {
+    this.setState("thinking");
     this.router.setTyping(groupId, true);
-    this.events.emit('typing', { groupId, typing: true });
+    this.events.emit("typing", { groupId, typing: true });
 
     // If this is a scheduled task, save the prompt as a user message so
     // it appears in conversation context and in the chat UI.
-    if (triggerContent.startsWith('[SCHEDULED TASK]')) {
+    if (triggerContent.startsWith("[SCHEDULED TASK]")) {
       this.pendingScheduledTasks.add(groupId);
       const stored: StoredMessage = {
         id: ulid(),
         groupId,
-        sender: 'Scheduler',
+        sender: "Scheduler",
         content: triggerContent,
         timestamp: Date.now(),
-        channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+        channel: groupId.startsWith("tg:") ? "telegram" : "browser",
         isFromMe: false,
         isTrigger: true,
       };
       await saveMessage(stored);
-      this.events.emit('message', stored);
+      this.events.emit("message", stored);
     }
 
     // Load group memory
-    let memory = '';
+    let memory = "";
     try {
-      memory = await readGroupFile(groupId, 'CLAUDE.md');
+      memory = await readGroupFile(groupId, "CLAUDE.md");
     } catch {
       // No memory file yet — that's fine
     }
 
     // Build conversation context
-    const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
+    const messages = await buildConversationMessages(
+      groupId,
+      CONTEXT_WINDOW_SIZE,
+    );
 
     const systemPrompt = buildSystemPrompt(this.assistantName, memory);
 
     // Send to agent worker
     this.agentWorker.postMessage({
-      type: 'invoke',
+      type: "invoke",
       payload: {
         groupId,
         messages,
         systemPrompt,
+        provider: this.provider,
         apiKey: this.apiKey,
+        ollamaUrl: this.ollamaUrl,
         model: this.model,
         maxTokens: this.maxTokens,
       },
@@ -428,58 +503,61 @@ export class Orchestrator {
 
   private async handleWorkerMessage(msg: WorkerOutbound): Promise<void> {
     switch (msg.type) {
-      case 'response': {
+      case "response": {
         const { groupId, text } = msg.payload;
         await this.deliverResponse(groupId, text);
         break;
       }
 
-      case 'task-created': {
+      case "task-created": {
         const { task } = msg.payload;
         try {
           await saveTask(task);
         } catch (err) {
-          console.error('Failed to save task from agent:', err);
+          console.error("Failed to save task from agent:", err);
         }
         break;
       }
 
-      case 'error': {
+      case "error": {
         const { groupId, error } = msg.payload;
         await this.deliverResponse(groupId, `⚠️ Error: ${error}`);
         break;
       }
 
-      case 'typing': {
+      case "typing": {
         const { groupId } = msg.payload;
         this.router.setTyping(groupId, true);
-        this.events.emit('typing', { groupId, typing: true });
+        this.events.emit("typing", { groupId, typing: true });
         break;
       }
 
-      case 'tool-activity': {
-        this.events.emit('tool-activity', msg.payload);
+      case "tool-activity": {
+        this.events.emit("tool-activity", msg.payload);
         break;
       }
 
-      case 'thinking-log': {
-        this.events.emit('thinking-log', msg.payload);
+      case "thinking-log": {
+        this.events.emit("thinking-log", msg.payload);
         break;
       }
 
-      case 'compact-done': {
+      case "compact-done": {
         await this.handleCompactDone(msg.payload.groupId, msg.payload.summary);
         break;
       }
 
-      case 'token-usage': {
-        this.events.emit('token-usage', msg.payload);
+      case "token-usage": {
+        this.events.emit("token-usage", msg.payload);
         break;
       }
     }
   }
 
-  private async handleCompactDone(groupId: string, summary: string): Promise<void> {
+  private async handleCompactDone(
+    groupId: string,
+    summary: string,
+  ): Promise<void> {
     // Clear old messages
     await clearGroupMessages(groupId);
 
@@ -490,15 +568,15 @@ export class Orchestrator {
       sender: this.assistantName,
       content: `📝 **Context Compacted**\n\n${summary}`,
       timestamp: Date.now(),
-      channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+      channel: groupId.startsWith("tg:") ? "telegram" : "browser",
       isFromMe: true,
       isTrigger: false,
     };
     await saveMessage(stored);
 
-    this.events.emit('context-compacted', { groupId, summary });
-    this.events.emit('typing', { groupId, typing: false });
-    this.setState('idle');
+    this.events.emit("context-compacted", { groupId, summary });
+    this.events.emit("typing", { groupId, typing: false });
+    this.setState("idle");
   }
 
   private async deliverResponse(groupId: string, text: string): Promise<void> {
@@ -509,7 +587,7 @@ export class Orchestrator {
       sender: this.assistantName,
       content: text,
       timestamp: Date.now(),
-      channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+      channel: groupId.startsWith("tg:") ? "telegram" : "browser",
       isFromMe: true,
       isTrigger: false,
     };
@@ -525,10 +603,10 @@ export class Orchestrator {
     }
 
     // Emit for UI
-    this.events.emit('message', stored);
-    this.events.emit('typing', { groupId, typing: false });
+    this.events.emit("message", stored);
+    this.events.emit("typing", { groupId, typing: false });
 
-    this.setState('idle');
+    this.setState("idle");
     this.router.setTyping(groupId, false);
   }
 }
@@ -540,28 +618,28 @@ export class Orchestrator {
 function buildSystemPrompt(assistantName: string, memory: string): string {
   const parts = [
     `You are ${assistantName}, a personal AI assistant running in the user's browser.`,
-    '',
-    'You have access to the following tools:',
-    '- **bash**: Execute commands in a sandboxed Linux VM (Alpine). Use for scripts, text processing, package installation.',
-    '- **javascript**: Execute JavaScript code. Lighter than bash — no VM boot needed. Use for calculations, data transforms.',
-    '- **read_file** / **write_file** / **list_files**: Manage files in the group workspace (persisted in browser storage).',
-    '- **fetch_url**: Make HTTP requests (subject to CORS).',
-    '- **update_memory**: Persist important context to CLAUDE.md — loaded on every conversation.',
-    '- **create_task**: Schedule recurring tasks with cron expressions.',
-    '',
-    'Guidelines:',
-    '- Be concise and direct.',
-    '- Use tools proactively when they help answer the question.',
-    '- Update memory when you learn important preferences or context.',
-    '- For scheduled tasks, confirm the schedule with the user.',
-    '- Strip <internal> tags from your responses — they are for your internal reasoning only.',
+    "",
+    "You have access to the following tools:",
+    "- **bash**: Execute commands in a sandboxed Linux VM (Alpine). Use for scripts, text processing, package installation.",
+    "- **javascript**: Execute JavaScript code. Lighter than bash — no VM boot needed. Use for calculations, data transforms.",
+    "- **read_file** / **write_file** / **list_files**: Manage files in the group workspace (persisted in browser storage).",
+    "- **fetch_url**: Make HTTP requests (subject to CORS).",
+    "- **update_memory**: Persist important context to CLAUDE.md — loaded on every conversation.",
+    "- **create_task**: Schedule recurring tasks with cron expressions.",
+    "",
+    "Guidelines:",
+    "- Be concise and direct.",
+    "- Use tools proactively when they help answer the question.",
+    "- Update memory when you learn important preferences or context.",
+    "- For scheduled tasks, confirm the schedule with the user.",
+    "- Strip <internal> tags from your responses — they are for your internal reasoning only.",
   ];
 
   if (memory) {
-    parts.push('', '## Persistent Memory', '', memory);
+    parts.push("", "## Persistent Memory", "", memory);
   }
 
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -579,7 +657,7 @@ function playNotificationChime(): void {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      osc.type = 'sine';
+      osc.type = "sine";
       osc.frequency.value = frequencies[i];
 
       gain.gain.setValueAtTime(0.3, now + i * 0.15);

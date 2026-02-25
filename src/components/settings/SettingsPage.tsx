@@ -2,28 +2,36 @@
 // OpenBrowserClaw — Settings page
 // ---------------------------------------------------------------------------
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import {
-  Palette, KeyRound, Eye, EyeOff, Bot, MessageSquare,
-  Smartphone, HardDrive, Lock, Check,
-} from 'lucide-react';
-import { getConfig, setConfig } from '../../db.js';
-import { CONFIG_KEYS } from '../../config.js';
-import { getStorageEstimate, requestPersistentStorage } from '../../storage.js';
-import { decryptValue } from '../../crypto.js';
-import { getOrchestrator } from '../../stores/orchestrator-store.js';
-import { useThemeStore, type ThemeChoice } from '../../stores/theme-store.js';
+  Palette,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Bot,
+  MessageSquare,
+  Smartphone,
+  HardDrive,
+  Lock,
+  Check,
+} from "lucide-react";
+import { getConfig, setConfig } from "../../db.js";
+import { CONFIG_KEYS } from "../../config.js";
+import { getStorageEstimate, requestPersistentStorage } from "../../storage.js";
+import { decryptValue } from "../../crypto.js";
+import { getOrchestrator } from "../../stores/orchestrator-store.js";
+import { useThemeStore, type ThemeChoice } from "../../stores/theme-store.js";
 
 const MODELS = [
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
+  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ];
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
+  if (bytes === 0) return "0 B";
   const k = 1024;
-  const units = ['B', 'KB', 'MB', 'GB'];
+  const units = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`;
 }
@@ -31,8 +39,16 @@ function formatBytes(bytes: number): string {
 export function SettingsPage() {
   const orch = getOrchestrator();
 
+  // Provider
+  const [provider, setProvider] = useState<"anthropic" | "ollama">(
+    orch.getProvider(),
+  );
+
+  // Ollama
+  const [ollamaUrl, setOllamaUrl] = useState(orch.getOllamaUrl());
+
   // API Key
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState("");
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
   const [apiKeySaved, setApiKeySaved] = useState(false);
 
@@ -43,8 +59,8 @@ export function SettingsPage() {
   const [assistantName, setAssistantName] = useState(orch.getAssistantName());
 
   // Telegram
-  const [telegramToken, setTelegramToken] = useState('');
-  const [telegramChatIds, setTelegramChatIds] = useState('');
+  const [telegramToken, setTelegramToken] = useState("");
+  const [telegramChatIds, setTelegramChatIds] = useState("");
   const [telegramSaved, setTelegramSaved] = useState(false);
 
   // Storage
@@ -58,6 +74,15 @@ export function SettingsPage() {
   // Load current values
   useEffect(() => {
     async function load() {
+      // Provider
+      const currentProvider = await getConfig(CONFIG_KEYS.PROVIDER);
+      if (currentProvider)
+        setProvider(currentProvider as "anthropic" | "ollama");
+
+      // Ollama Url
+      const outUrl = await getConfig(CONFIG_KEYS.OLLAMA_URL);
+      if (outUrl) setOllamaUrl(outUrl);
+
       // API key
       const encKey = await getConfig(CONFIG_KEYS.ANTHROPIC_API_KEY);
       if (encKey) {
@@ -65,7 +90,7 @@ export function SettingsPage() {
           const dec = await decryptValue(encKey);
           setApiKey(dec);
         } catch {
-          setApiKey('');
+          setApiKey("");
         }
       }
 
@@ -75,7 +100,7 @@ export function SettingsPage() {
       const chatIds = await getConfig(CONFIG_KEYS.TELEGRAM_CHAT_IDS);
       if (chatIds) {
         try {
-          setTelegramChatIds(JSON.parse(chatIds).join(', '));
+          setTelegramChatIds(JSON.parse(chatIds).join(", "));
         } catch {
           setTelegramChatIds(chatIds);
         }
@@ -109,7 +134,7 @@ export function SettingsPage() {
 
   async function handleTelegramSave() {
     const ids = telegramChatIds
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     await orch.configureTelegram(telegramToken.trim(), ids);
@@ -122,7 +147,8 @@ export function SettingsPage() {
     setIsPersistent(granted);
   }
 
-  const storagePercent = storageQuota > 0 ? (storageUsage / storageQuota) * 100 : 0;
+  const storagePercent =
+    storageQuota > 0 ? (storageUsage / storageQuota) * 100 : 0;
 
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-6 max-w-3xl mx-auto space-y-4">
@@ -131,7 +157,9 @@ export function SettingsPage() {
       {/* ---- Theme ---- */}
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
-          <h3 className="card-title text-base gap-2"><Palette className="w-4 h-4" /> Appearance</h3>
+          <h3 className="card-title text-base gap-2">
+            <Palette className="w-4 h-4" /> Appearance
+          </h3>
           <fieldset className="fieldset">
             <legend className="fieldset-legend">Theme</legend>
             <select
@@ -147,65 +175,145 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* ---- API Key ---- */}
+      {/* ---- AI Provider ---- */}
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
-          <h3 className="card-title text-base gap-2"><KeyRound className="w-4 h-4" /> Anthropic API Key</h3>
-          <div className="flex gap-2">
-            <input
-              type={apiKeyMasked ? 'password' : 'text'}
-              className="input input-bordered input-sm w-full flex-1 font-mono"
-              placeholder="sk-ant-..."
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setApiKeyMasked(!apiKeyMasked)}
-            >
-              {apiKeyMasked ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleSaveApiKey}
-              disabled={!apiKey.trim()}
-            >
-              Save
-            </button>
-            {apiKeySaved && (
-              <span className="text-success text-sm flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>
-            )}
-          </div>
-          <p className="text-xs opacity-50">
-            Your API key is encrypted and stored locally. It never leaves your browser.
-          </p>
+          <h3 className="card-title text-base gap-2">
+            <Bot className="w-4 h-4" /> AI Provider
+          </h3>
+          <select
+            className="select select-bordered select-sm w-full"
+            value={provider}
+            onChange={async (e) => {
+              const val = e.target.value as "anthropic" | "ollama";
+              setProvider(val);
+              await orch.setProvider(val);
+
+              if (val === "ollama" && model.startsWith("claude-")) {
+                setModel("");
+                await orch.setModel("");
+              } else if (val === "anthropic" && !model.startsWith("claude-")) {
+                setModel("claude-sonnet-4-6");
+                await orch.setModel("claude-sonnet-4-6");
+              }
+            }}
+          >
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="ollama">Ollama (Local)</option>
+          </select>
         </div>
       </div>
+
+      {/* ---- API Key ---- */}
+      {provider === "anthropic" && (
+        <div className="card card-bordered bg-base-200">
+          <div className="card-body p-4 sm:p-6 gap-3">
+            <h3 className="card-title text-base gap-2">
+              <KeyRound className="w-4 h-4" /> Anthropic API Key
+            </h3>
+            <div className="flex gap-2">
+              <input
+                type={apiKeyMasked ? "password" : "text"}
+                className="input input-bordered input-sm w-full flex-1 font-mono"
+                placeholder="sk-ant-..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setApiKeyMasked(!apiKeyMasked)}
+              >
+                {apiKeyMasked ? (
+                  <Eye className="w-4 h-4" />
+                ) : (
+                  <EyeOff className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveApiKey}
+                disabled={!apiKey.trim()}
+              >
+                Save
+              </button>
+              {apiKeySaved && (
+                <span className="text-success text-sm flex items-center gap-1">
+                  <Check className="w-4 h-4" /> Saved
+                </span>
+              )}
+            </div>
+            <p className="text-xs opacity-50">
+              Your API key is encrypted and stored locally. It never leaves your
+              browser.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Ollama Host ---- */}
+      {provider === "ollama" && (
+        <div className="card card-bordered bg-base-200">
+          <div className="card-body p-4 sm:p-6 gap-3">
+            <h3 className="card-title text-base gap-2">
+              <HardDrive className="w-4 h-4" /> Ollama Host Configuration
+            </h3>
+            <fieldset className="fieldset">
+              <legend className="fieldset-legend">Ollama URL</legend>
+              <input
+                type="text"
+                className="input input-bordered input-sm w-full font-mono"
+                placeholder="http://localhost:11434"
+                value={ollamaUrl}
+                onChange={(e) => setOllamaUrl(e.target.value)}
+                onBlur={() => orch.setOllamaUrl(ollamaUrl.trim())}
+              />
+            </fieldset>
+          </div>
+        </div>
+      )}
 
       {/* ---- Model ---- */}
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
-          <h3 className="card-title text-base gap-2"><Bot className="w-4 h-4" /> Model</h3>
-          <select
-            className="select select-bordered select-sm"
-            value={model}
-            onChange={(e) => handleModelChange(e.target.value)}
-          >
-            {MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          <h3 className="card-title text-base gap-2">
+            <Bot className="w-4 h-4" /> Model
+          </h3>
+          {provider === "anthropic" ? (
+            <select
+              className="select select-bordered select-sm w-full"
+              value={model}
+              onChange={(e) => handleModelChange(e.target.value)}
+            >
+              {MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="input input-bordered input-sm w-full font-mono"
+              placeholder="llama3.1"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              onBlur={() => handleModelChange(model.trim())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleModelChange(model.trim());
+              }}
+            />
+          )}
         </div>
       </div>
 
       {/* ---- Assistant Name ---- */}
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
-          <h3 className="card-title text-base gap-2"><MessageSquare className="w-4 h-4" /> Assistant Name</h3>
+          <h3 className="card-title text-base gap-2">
+            <MessageSquare className="w-4 h-4" /> Assistant Name
+          </h3>
           <div className="flex gap-2">
             <input
               type="text"
@@ -217,7 +325,8 @@ export function SettingsPage() {
             />
           </div>
           <p className="text-xs opacity-50">
-            The name used for the assistant. Mention @{assistantName} to trigger a response.
+            The name used for the assistant. Mention @{assistantName} to trigger
+            a response.
           </p>
         </div>
       </div>
@@ -225,7 +334,9 @@ export function SettingsPage() {
       {/* ---- Telegram ---- */}
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
-          <h3 className="card-title text-base gap-2"><Smartphone className="w-4 h-4" /> Telegram Bot</h3>
+          <h3 className="card-title text-base gap-2">
+            <Smartphone className="w-4 h-4" /> Telegram Bot
+          </h3>
           <fieldset className="fieldset">
             <legend className="fieldset-legend">Bot Token</legend>
             <input
@@ -245,7 +356,9 @@ export function SettingsPage() {
               value={telegramChatIds}
               onChange={(e) => setTelegramChatIds(e.target.value)}
             />
-            <p className="fieldset-label opacity-60">Comma-separated chat IDs</p>
+            <p className="fieldset-label opacity-60">
+              Comma-separated chat IDs
+            </p>
           </fieldset>
           <div className="flex items-center gap-2">
             <button
@@ -256,7 +369,9 @@ export function SettingsPage() {
               Save Telegram Config
             </button>
             {telegramSaved && (
-              <span className="text-success text-sm flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>
+              <span className="text-success text-sm flex items-center gap-1">
+                <Check className="w-4 h-4" /> Saved
+              </span>
             )}
           </div>
         </div>
@@ -265,13 +380,13 @@ export function SettingsPage() {
       {/* ---- Storage ---- */}
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
-          <h3 className="card-title text-base gap-2"><HardDrive className="w-4 h-4" /> Storage</h3>
+          <h3 className="card-title text-base gap-2">
+            <HardDrive className="w-4 h-4" /> Storage
+          </h3>
           <div>
             <div className="flex items-center justify-between text-sm mb-1">
               <span>{formatBytes(storageUsage)} used</span>
-              <span className="opacity-60">
-                of {formatBytes(storageQuota)}
-              </span>
+              <span className="opacity-60">of {formatBytes(storageQuota)}</span>
             </div>
             <progress
               className="progress progress-primary w-full h-2"
