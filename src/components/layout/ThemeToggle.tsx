@@ -21,7 +21,10 @@ export function ThemeToggle() {
       <div tabIndex={0} role="button" className="btn btn-ghost btn-sm btn-square">
         <ActiveIcon className="w-5 h-5" />
       </div>
-      <ul tabIndex={0} className="dropdown-content menu bg-base-200 rounded-box shadow-lg z-50 w-36 p-2 mt-2">
+      <ul
+        tabIndex={0}
+        className="dropdown-content menu bg-base-200 rounded-box shadow-lg z-50 w-36 p-2 mt-2"
+      >
         {options.map((opt) => (
           <li key={opt.value}>
             <button

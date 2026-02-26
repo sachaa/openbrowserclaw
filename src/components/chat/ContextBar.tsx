@@ -22,17 +22,11 @@ export function ContextBar({ usage }: Props) {
   else if (pct >= 60) colorClass = 'progress-warning';
 
   const cacheInfo =
-    usage.cacheReadTokens > 0
-      ? ` (${formatTokens(usage.cacheReadTokens)} cached)`
-      : '';
+    usage.cacheReadTokens > 0 ? ` (${formatTokens(usage.cacheReadTokens)} cached)` : '';
 
   return (
     <div className="px-4 py-1.5 flex items-center gap-3">
-      <progress
-        className={`progress ${colorClass} flex-1 h-1.5`}
-        value={pct}
-        max={100}
-      />
+      <progress className={`progress ${colorClass} flex-1 h-1.5`} value={pct} max={100} />
       <span className="text-xs opacity-60 whitespace-nowrap hidden sm:inline">
         {formatTokens(total)} / {formatTokens(usage.contextLimit)} tokens{cacheInfo}
       </span>

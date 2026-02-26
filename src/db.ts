@@ -103,15 +103,10 @@ function txPromiseAll<T>(
 // ---------------------------------------------------------------------------
 
 export function saveMessage(msg: StoredMessage): Promise<void> {
-  return txPromise('messages', 'readwrite', (store) =>
-    store.put(msg),
-  ).then(() => undefined);
+  return txPromise('messages', 'readwrite', (store) => store.put(msg)).then(() => undefined);
 }
 
-export function getRecentMessages(
-  groupId: string,
-  limit: number,
-): Promise<StoredMessage[]> {
+export function getRecentMessages(groupId: string, limit: number): Promise<StoredMessage[]> {
   return new Promise((resolve, reject) => {
     const tx = getDb().transaction('messages', 'readonly');
     const store = tx.objectStore('messages');
@@ -171,15 +166,11 @@ export function getAllGroupIds(): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 export function getSession(groupId: string): Promise<Session | undefined> {
-  return txPromise('sessions', 'readonly', (store) =>
-    store.get(groupId),
-  );
+  return txPromise('sessions', 'readonly', (store) => store.get(groupId));
 }
 
 export function saveSession(session: Session): Promise<void> {
-  return txPromise('sessions', 'readwrite', (store) =>
-    store.put(session),
-  ).then(() => undefined);
+  return txPromise('sessions', 'readwrite', (store) => store.put(session)).then(() => undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -190,15 +181,11 @@ export function saveTask(task: Task): Promise<void> {
   // Store `enabled` as 0/1 so the IndexedDB 'by-enabled' index works
   // (IDB exact-match key queries don't equate boolean true with number 1).
   const record = { ...task, enabled: task.enabled ? 1 : 0 };
-  return txPromise('tasks', 'readwrite', (store) =>
-    store.put(record),
-  ).then(() => undefined);
+  return txPromise('tasks', 'readwrite', (store) => store.put(record)).then(() => undefined);
 }
 
 export function deleteTask(id: string): Promise<void> {
-  return txPromise('tasks', 'readwrite', (store) =>
-    store.delete(id),
-  ).then(() => undefined);
+  return txPromise('tasks', 'readwrite', (store) => store.delete(id)).then(() => undefined);
 }
 
 export function getEnabledTasks(): Promise<Task[]> {
@@ -217,9 +204,7 @@ export function getEnabledTasks(): Promise<Task[]> {
 }
 
 export function getAllTasks(): Promise<Task[]> {
-  return txPromise('tasks', 'readonly', (store) =>
-    store.getAll(),
-  ).then((tasks: any[]) =>
+  return txPromise('tasks', 'readonly', (store) => store.getAll()).then((tasks: any[]) =>
     tasks.map((t) => ({ ...t, enabled: !!t.enabled })),
   );
 }
@@ -231,7 +216,10 @@ export function updateTaskLastRun(id: string, timestamp: number): Promise<void> 
     const getReq = store.get(id);
     getReq.onsuccess = () => {
       const task = getReq.result as Task | undefined;
-      if (!task) { resolve(); return; }
+      if (!task) {
+        resolve();
+        return;
+      }
       task.lastRun = timestamp;
       const putReq = store.put(task);
       putReq.onsuccess = () => resolve();
@@ -246,27 +234,23 @@ export function updateTaskLastRun(id: string, timestamp: number): Promise<void> 
 // ---------------------------------------------------------------------------
 
 export function getConfig(key: string): Promise<string | undefined> {
-  return txPromise('config', 'readonly', (store) =>
-    store.get(key),
-  ).then((entry: ConfigEntry | undefined) => entry?.value);
+  return txPromise('config', 'readonly', (store) => store.get(key)).then(
+    (entry: ConfigEntry | undefined) => entry?.value,
+  );
 }
 
 export function setConfig(key: string, value: string): Promise<void> {
-  return txPromise('config', 'readwrite', (store) =>
-    store.put({ key, value } as ConfigEntry),
-  ).then(() => undefined);
+  return txPromise('config', 'readwrite', (store) => store.put({ key, value } as ConfigEntry)).then(
+    () => undefined,
+  );
 }
 
 export function deleteConfig(key: string): Promise<void> {
-  return txPromise('config', 'readwrite', (store) =>
-    store.delete(key),
-  ).then(() => undefined);
+  return txPromise('config', 'readwrite', (store) => store.delete(key)).then(() => undefined);
 }
 
 export function getAllConfig(): Promise<ConfigEntry[]> {
-  return txPromise('config', 'readonly', (store) =>
-    store.getAll(),
-  );
+  return txPromise('config', 'readonly', (store) => store.getAll());
 }
 
 /**

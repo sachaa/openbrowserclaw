@@ -115,9 +115,23 @@ function splitOnOperators(line: string): Segment[] {
   while (i < line.length) {
     const ch = line[i];
 
-    if (ch === "'" && !inDouble) { inSingle = !inSingle; current += ch; i++; continue; }
-    if (ch === '"' && !inSingle) { inDouble = !inDouble; current += ch; i++; continue; }
-    if (inSingle || inDouble) { current += ch; i++; continue; }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (inSingle || inDouble) {
+      current += ch;
+      i++;
+      continue;
+    }
 
     if (ch === '&' && line[i + 1] === '&') {
       segments.push({ cmd: current, op: '&&' });
@@ -149,7 +163,10 @@ function splitOnOperators(line: string): Segment[] {
 /** Split by | (not ||) and chain stdin/stdout */
 async function runPipe(line: string, ctx: ShellContext): Promise<ShellResult> {
   // Naïve pipe split — doesn't handle | inside quotes perfectly
-  const parts = line.split(/(?<!\|)\|(?!\|)/).map((s) => s.trim()).filter(Boolean);
+  const parts = line
+    .split(/(?<!\|)\|(?!\|)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
   let lastResult: ShellResult = { stdout: '', stderr: '', exitCode: 0 };
 
   for (const part of parts) {
@@ -164,11 +181,7 @@ async function runPipe(line: string, ctx: ShellContext): Promise<ShellResult> {
 // Single command execution
 // ---------------------------------------------------------------------------
 
-async function runSingle(
-  raw: string,
-  ctx: ShellContext,
-  stdin = '',
-): Promise<ShellResult> {
+async function runSingle(raw: string, ctx: ShellContext, stdin = ''): Promise<ShellResult> {
   checkTimeout(ctx);
 
   // Handle redirections >  >>
@@ -257,7 +270,10 @@ async function dispatch(
       if (args.length === 0 && stdin) return ok(stdin);
       const parts: string[] = [];
       for (const f of args) {
-        if (f === '-') { parts.push(stdin); continue; }
+        if (f === '-') {
+          parts.push(stdin);
+          continue;
+        }
         const content = await safeRead(ctx.groupId, resolvePath(f, ctx));
         if (content === null) return fail(`cat: ${f}: No such file`);
         parts.push(content);
@@ -268,27 +284,28 @@ async function dispatch(
     case 'head': {
       const { flags, operands } = parseFlags(args, ['n']);
       const n = parseInt(flags.n ?? '10', 10);
-      const text = operands.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        operands.length > 0
+          ? ((await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? '')
+          : stdin;
       return ok(text.split('\n').slice(0, n).join('\n') + '\n');
     }
 
     case 'tail': {
       const { flags, operands } = parseFlags(args, ['n']);
       const n = parseInt(flags.n ?? '10', 10);
-      const text = operands.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        operands.length > 0
+          ? ((await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? '')
+          : stdin;
       const lines = text.split('\n');
       return ok(lines.slice(Math.max(0, lines.length - n)).join('\n'));
     }
 
     // -- Text processing --------------------------------------------------
     case 'wc': {
-      const text = args.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        args.length > 0 ? ((await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? '') : stdin;
       const lines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
       const words = text.split(/\s+/).filter(Boolean).length;
       const chars = text.length;
@@ -298,9 +315,10 @@ async function dispatch(
     case 'grep': {
       const { flags, operands } = parseFlags(args, ['e', 'm'], ['i', 'v', 'c', 'n', 'l']);
       const pattern = flags.e ?? operands.shift() ?? '';
-      const text = operands.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        operands.length > 0
+          ? ((await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? '')
+          : stdin;
       const re = new RegExp(pattern, flags.i !== undefined ? 'i' : '');
       const invert = flags.v !== undefined;
       let lines = text.split('\n').filter((l) => {
@@ -313,16 +331,15 @@ async function dispatch(
         const all = text.split('\n');
         lines = lines.map((l) => `${all.indexOf(l) + 1}:${l}`);
       }
-      return lines.length > 0
-        ? ok(lines.join('\n') + '\n')
-        : fail('', 1); // grep exits 1 when no matches
+      return lines.length > 0 ? ok(lines.join('\n') + '\n') : fail('', 1); // grep exits 1 when no matches
     }
 
     case 'sort': {
       const { flags, operands } = parseFlags(args, [], ['r', 'n', 'u']);
-      const text = operands.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        operands.length > 0
+          ? ((await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? '')
+          : stdin;
       let lines = text.split('\n').filter(Boolean);
       if (flags.n !== undefined) {
         lines.sort((a, b) => parseFloat(a) - parseFloat(b));
@@ -335,9 +352,8 @@ async function dispatch(
     }
 
     case 'uniq': {
-      const text = args.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        args.length > 0 ? ((await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? '') : stdin;
       const lines = text.split('\n');
       const result = lines.filter((l, i) => i === 0 || l !== lines[i - 1]);
       return ok(result.join('\n'));
@@ -367,9 +383,10 @@ async function dispatch(
       const { flags, operands } = parseFlags(args, ['d', 'f']);
       const delim = flags.d ?? '\t';
       const fields = (flags.f ?? '1').split(',').map((s) => parseInt(s, 10) - 1);
-      const text = operands.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        operands.length > 0
+          ? ((await safeRead(ctx.groupId, resolvePath(operands[0], ctx))) ?? '')
+          : stdin;
       const result = text.split('\n').map((line) => {
         const parts = line.split(delim);
         return fields.map((f) => parts[f] ?? '').join(delim);
@@ -380,21 +397,22 @@ async function dispatch(
     case 'sed': {
       // Basic s/pattern/replacement/flags
       const expr = args[0] ?? '';
-      const text = args.length > 1
-        ? (await safeRead(ctx.groupId, resolvePath(args[1], ctx))) ?? ''
-        : stdin;
+      const text =
+        args.length > 1 ? ((await safeRead(ctx.groupId, resolvePath(args[1], ctx))) ?? '') : stdin;
       const sedMatch = expr.match(/^s(.)(.+?)\1(.*?)\1([gi]*)$/);
       if (!sedMatch) return fail(`sed: unsupported expression: ${expr}`);
       const [, , pattern, replacement, sedFlags] = sedMatch;
-      const re = new RegExp(pattern, sedFlags.includes('i') ? 'gi' : sedFlags.includes('g') ? 'g' : '');
+      const re = new RegExp(
+        pattern,
+        sedFlags.includes('i') ? 'gi' : sedFlags.includes('g') ? 'g' : '',
+      );
       return ok(text.replace(re, replacement));
     }
 
     case 'awk': {
       // Extremely basic awk: supports print, $N fields, NR
-      const text = args.length > 1
-        ? (await safeRead(ctx.groupId, resolvePath(args[1], ctx))) ?? ''
-        : stdin;
+      const text =
+        args.length > 1 ? ((await safeRead(ctx.groupId, resolvePath(args[1], ctx))) ?? '') : stdin;
       const program = args[0] ?? '';
 
       // Handle the common '{print $N}' pattern
@@ -524,10 +542,19 @@ async function dispatch(
 
     case 'seq': {
       const nums = args.map(Number);
-      let start = 1, step = 1, end = 1;
-      if (nums.length === 1) { end = nums[0]; }
-      else if (nums.length === 2) { start = nums[0]; end = nums[1]; }
-      else if (nums.length >= 3) { start = nums[0]; step = nums[1]; end = nums[2]; }
+      let start = 1,
+        step = 1,
+        end = 1;
+      if (nums.length === 1) {
+        end = nums[0];
+      } else if (nums.length === 2) {
+        start = nums[0];
+        end = nums[1];
+      } else if (nums.length >= 3) {
+        start = nums[0];
+        step = nums[1];
+        end = nums[2];
+      }
       const out: number[] = [];
       for (let i = start; step > 0 ? i <= end : i >= end; i += step) out.push(i);
       return ok(out.join('\n') + '\n');
@@ -547,9 +574,10 @@ async function dispatch(
     }
 
     case 'base64': {
-      const text = args.length > 0 && args[0] !== '-d'
-        ? (await safeRead(ctx.groupId, resolvePath(args[args.length - 1], ctx))) ?? ''
-        : stdin;
+      const text =
+        args.length > 0 && args[0] !== '-d'
+          ? ((await safeRead(ctx.groupId, resolvePath(args[args.length - 1], ctx))) ?? '')
+          : stdin;
       if (args.includes('-d') || args.includes('--decode')) {
         return ok(atob(text.trim()));
       }
@@ -559,12 +587,13 @@ async function dispatch(
     case 'md5sum':
     case 'sha256sum': {
       const algo = name === 'md5sum' ? 'SHA-1' : 'SHA-256'; // No MD5 in WebCrypto, use SHA-1 as fallback
-      const text = args.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? ''
-        : stdin;
+      const text =
+        args.length > 0 ? ((await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? '') : stdin;
       const data = new TextEncoder().encode(text);
       const hash = await crypto.subtle.digest(algo, data);
-      const hex = Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const hex = Array.from(new Uint8Array(hash))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
       const fname = args[0] ?? '-';
       return ok(`${hex}  ${fname}\n`);
     }
@@ -602,10 +631,14 @@ async function dispatch(
     }
 
     case 'rev': {
-      const text = args.length > 0
-        ? (await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? ''
-        : stdin;
-      return ok(text.split('\n').map((l) => l.split('').reverse().join('')).join('\n'));
+      const text =
+        args.length > 0 ? ((await safeRead(ctx.groupId, resolvePath(args[0], ctx))) ?? '') : stdin;
+      return ok(
+        text
+          .split('\n')
+          .map((l) => l.split('').reverse().join(''))
+          .join('\n'),
+      );
     }
 
     case 'yes': {
@@ -617,16 +650,24 @@ async function dispatch(
     case 'jq': {
       // Very basic jq: . (identity), .key, .key.subkey, .[0], keys, length
       const expr = args[0] ?? '.';
-      const text = args.length > 1
-        ? (await safeRead(ctx.groupId, resolvePath(args[1], ctx))) ?? ''
-        : stdin;
+      const text =
+        args.length > 1 ? ((await safeRead(ctx.groupId, resolvePath(args[1], ctx))) ?? '') : stdin;
       try {
         let obj = JSON.parse(text.trim());
         if (expr !== '.') {
-          const parts = expr.replace(/^\.\s*/, '').split(/\.|\[|\]/).filter(Boolean);
+          const parts = expr
+            .replace(/^\.\s*/, '')
+            .split(/\.|\[|\]/)
+            .filter(Boolean);
           for (const p of parts) {
-            if (p === 'keys') { obj = Object.keys(obj); break; }
-            if (p === 'length') { obj = Array.isArray(obj) ? obj.length : Object.keys(obj).length; break; }
+            if (p === 'keys') {
+              obj = Object.keys(obj);
+              break;
+            }
+            if (p === 'length') {
+              obj = Array.isArray(obj) ? obj.length : Object.keys(obj).length;
+              break;
+            }
             obj = obj?.[isNaN(Number(p)) ? p : Number(p)];
           }
         }
@@ -649,20 +690,57 @@ async function dispatch(
     default:
       return fail(
         `${name}: command not found. Available: echo, cat, head, tail, grep, sort, ` +
-        `sed, awk, cut, tr, uniq, wc, ls, mkdir, cp, mv, rm, touch, pwd, cd, date, ` +
-        `sleep, seq, base64, jq, tee, xargs, test, rev, basename, dirname. ` +
-        `For complex logic, use the "javascript" tool instead.`,
+          `sed, awk, cut, tr, uniq, wc, ls, mkdir, cp, mv, rm, touch, pwd, cd, date, ` +
+          `sleep, seq, base64, jq, tee, xargs, test, rev, basename, dirname. ` +
+          `For complex logic, use the "javascript" tool instead.`,
         127,
       );
   }
 }
 
 const SUPPORTED_COMMANDS = new Set([
-  'echo', 'printf', 'cat', 'head', 'tail', 'wc', 'grep', 'sort', 'uniq',
-  'tr', 'cut', 'sed', 'awk', 'ls', 'mkdir', 'cp', 'mv', 'rm', 'touch',
-  'pwd', 'cd', 'date', 'env', 'printenv', 'export', 'sleep', 'seq',
-  'true', 'false', 'test', 'base64', 'md5sum', 'sha256sum', 'tee',
-  'basename', 'dirname', 'xargs', 'rev', 'yes', 'jq', 'which', 'command',
+  'echo',
+  'printf',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'grep',
+  'sort',
+  'uniq',
+  'tr',
+  'cut',
+  'sed',
+  'awk',
+  'ls',
+  'mkdir',
+  'cp',
+  'mv',
+  'rm',
+  'touch',
+  'pwd',
+  'cd',
+  'date',
+  'env',
+  'printenv',
+  'export',
+  'sleep',
+  'seq',
+  'true',
+  'false',
+  'test',
+  'base64',
+  'md5sum',
+  'sha256sum',
+  'tee',
+  'basename',
+  'dirname',
+  'xargs',
+  'rev',
+  'yes',
+  'jq',
+  'which',
+  'command',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -690,7 +768,10 @@ function resolvePath(p: string, ctx: ShellContext): string {
   const parts: string[] = [];
   for (const seg of cleaned.split('/')) {
     if (seg === '.' || seg === '') continue;
-    if (seg === '..') { parts.pop(); continue; }
+    if (seg === '..') {
+      parts.pop();
+      continue;
+    }
     parts.push(seg);
   }
   return parts.join('/') || '.';
@@ -713,10 +794,23 @@ function tokenize(cmd: string): string[] {
   let escape = false;
 
   for (const ch of cmd) {
-    if (escape) { current += ch; escape = false; continue; }
-    if (ch === '\\' && !inSingle) { escape = true; continue; }
-    if (ch === "'" && !inDouble) { inSingle = !inSingle; continue; }
-    if (ch === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && !inSingle) {
+      escape = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
     if (ch === ' ' && !inSingle && !inDouble) {
       if (current) tokens.push(current);
       current = '';
@@ -740,7 +834,10 @@ function parseFlags(
 
   while (i < args.length) {
     const a = args[i];
-    if (a === '--') { operands.push(...args.slice(i + 1)); break; }
+    if (a === '--') {
+      operands.push(...args.slice(i + 1));
+      break;
+    }
 
     if (a.startsWith('-') && a.length > 1 && !a.startsWith('--')) {
       const flag = a.slice(1);
@@ -808,9 +905,13 @@ async function testExpr(args: string[], ctx: ShellContext): Promise<ShellResult>
         try {
           await listGroupFiles(ctx.groupId, resolvePath(args[1], ctx));
           return ok;
-        } catch { return no; }
-      case '-z': return args[1].length === 0 ? ok : no;
-      case '-n': return args[1].length > 0 ? ok : no;
+        } catch {
+          return no;
+        }
+      case '-z':
+        return args[1].length === 0 ? ok : no;
+      case '-n':
+        return args[1].length > 0 ? ok : no;
     }
   }
 
@@ -818,14 +919,23 @@ async function testExpr(args: string[], ctx: ShellContext): Promise<ShellResult>
   if (args.length === 3) {
     const [left, op, right] = args;
     switch (op) {
-      case '=': case '==': return left === right ? ok : no;
-      case '!=': return left !== right ? ok : no;
-      case '-eq': return Number(left) === Number(right) ? ok : no;
-      case '-ne': return Number(left) !== Number(right) ? ok : no;
-      case '-lt': return Number(left) < Number(right) ? ok : no;
-      case '-le': return Number(left) <= Number(right) ? ok : no;
-      case '-gt': return Number(left) > Number(right) ? ok : no;
-      case '-ge': return Number(left) >= Number(right) ? ok : no;
+      case '=':
+      case '==':
+        return left === right ? ok : no;
+      case '!=':
+        return left !== right ? ok : no;
+      case '-eq':
+        return Number(left) === Number(right) ? ok : no;
+      case '-ne':
+        return Number(left) !== Number(right) ? ok : no;
+      case '-lt':
+        return Number(left) < Number(right) ? ok : no;
+      case '-le':
+        return Number(left) <= Number(right) ? ok : no;
+      case '-gt':
+        return Number(left) > Number(right) ? ok : no;
+      case '-ge':
+        return Number(left) >= Number(right) ? ok : no;
     }
   }
 

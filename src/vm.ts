@@ -56,15 +56,14 @@ export async function bootVM(): Promise<void> {
 /**
  * Execute a command in the VM. Boots VM if not already running.
  */
-export async function executeInVM(
-  command: string,
-  timeoutSec: number = 30,
-): Promise<string> {
+export async function executeInVM(command: string, timeoutSec: number = 30): Promise<string> {
   if (!instance?.isReady()) {
     // VM not available — fall back to a helpful error
-    return 'Error: WebVM is not available. The VM requires a ~30MB Alpine Linux image ' +
+    return (
+      'Error: WebVM is not available. The VM requires a ~30MB Alpine Linux image ' +
       'served at /assets/alpine-rootfs.ext2. Use the "javascript" tool for code ' +
-      'execution, or the "fetch_url" tool for HTTP requests.';
+      'execution, or the "fetch_url" tool for HTTP requests.'
+    );
   }
 
   const result = await instance.execute(command, timeoutSec);
@@ -115,14 +114,14 @@ async function doBootVM(): Promise<void> {
     if (!rootfsCheck?.ok || !wasmCheck?.ok) {
       console.warn(
         'WebVM assets not found. Bash tool will be unavailable. ' +
-        'To enable: place alpine-rootfs.ext2 and v86.wasm in public/assets/',
+          'To enable: place alpine-rootfs.ext2 and v86.wasm in public/assets/',
       );
       return;
     }
 
     // Load v86 dynamically
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const v86Module: any = await (Function('return import("/assets/v86/libv86.js")')());
+    const v86Module: any = await Function('return import("/assets/v86/libv86.js")')();
     const V86 = v86Module.V86 || v86Module.default;
 
     // Fetch and cache rootfs
@@ -156,8 +155,7 @@ async function doBootVM(): Promise<void> {
         emulator.destroy();
         instance = null;
       },
-      execute: (cmd: string, timeout: number) =>
-        executeCommand(emulator, cmd, timeout),
+      execute: (cmd: string, timeout: number) => executeCommand(emulator, cmd, timeout),
     };
 
     console.log('WebVM booted successfully');
@@ -166,11 +164,7 @@ async function doBootVM(): Promise<void> {
   }
 }
 
-function waitForSerial(
-  emulator: V86Emulator,
-  needle: string,
-  timeoutMs: number,
-): Promise<void> {
+function waitForSerial(emulator: V86Emulator, needle: string, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     let buffer = '';
     const timer = setTimeout(() => {

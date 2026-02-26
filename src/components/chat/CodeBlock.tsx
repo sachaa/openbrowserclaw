@@ -23,14 +23,15 @@ export function CodeBlock({ language, code }: Props) {
     <div className="relative my-2 rounded-lg bg-base-300/50 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1 text-xs opacity-60 border-b border-base-content/10">
         <span>{language}</span>
-        <button
-          onClick={handleCopy}
-          className="btn btn-ghost btn-xs gap-1"
-        >
+        <button onClick={handleCopy} className="btn btn-ghost btn-xs gap-1">
           {copied ? (
-            <><Check className="w-3 h-3" /> Copied</>
+            <>
+              <Check className="w-3 h-3" /> Copied
+            </>
           ) : (
-            <><Copy className="w-3 h-3" /> Copy</>
+            <>
+              <Copy className="w-3 h-3" /> Copy
+            </>
           )}
         </button>
       </div>

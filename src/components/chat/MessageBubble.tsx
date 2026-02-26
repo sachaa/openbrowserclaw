@@ -20,15 +20,53 @@ const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [
     ...(defaultSchema.tagNames ?? []),
-    'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon',
-    'ellipse', 'g', 'defs', 'use', 'text', 'tspan',
-    'linearGradient', 'radialGradient', 'stop', 'clipPath', 'mask',
-    'pattern', 'marker', 'foreignObject',
+    'svg',
+    'path',
+    'circle',
+    'rect',
+    'line',
+    'polyline',
+    'polygon',
+    'ellipse',
+    'g',
+    'defs',
+    'use',
+    'text',
+    'tspan',
+    'linearGradient',
+    'radialGradient',
+    'stop',
+    'clipPath',
+    'mask',
+    'pattern',
+    'marker',
+    'foreignObject',
   ],
   attributes: {
     ...defaultSchema.attributes,
-    svg: ['xmlns', 'viewBox', 'width', 'height', 'fill', 'stroke', 'class', 'style', 'role', 'aria-*'],
-    path: ['d', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'transform', 'class'],
+    svg: [
+      'xmlns',
+      'viewBox',
+      'width',
+      'height',
+      'fill',
+      'stroke',
+      'class',
+      'style',
+      'role',
+      'aria-*',
+    ],
+    path: [
+      'd',
+      'fill',
+      'stroke',
+      'stroke-width',
+      'stroke-linecap',
+      'stroke-linejoin',
+      'opacity',
+      'transform',
+      'class',
+    ],
     circle: ['cx', 'cy', 'r', 'fill', 'stroke', 'stroke-width', 'class'],
     rect: ['x', 'y', 'width', 'height', 'rx', 'ry', 'fill', 'stroke', 'stroke-width', 'class'],
     line: ['x1', 'y1', 'x2', 'y2', 'stroke', 'stroke-width', 'class'],
@@ -36,7 +74,18 @@ const sanitizeSchema = {
     polygon: ['points', 'fill', 'stroke', 'stroke-width', 'class'],
     ellipse: ['cx', 'cy', 'rx', 'ry', 'fill', 'stroke', 'class'],
     g: ['transform', 'fill', 'stroke', 'class', 'opacity'],
-    text: ['x', 'y', 'dx', 'dy', 'text-anchor', 'font-size', 'font-family', 'fill', 'class', 'transform'],
+    text: [
+      'x',
+      'y',
+      'dx',
+      'dy',
+      'text-anchor',
+      'font-size',
+      'font-family',
+      'fill',
+      'class',
+      'transform',
+    ],
     tspan: ['x', 'y', 'dx', 'dy', 'fill', 'class'],
     linearGradient: ['id', 'x1', 'y1', 'x2', 'y2', 'gradientUnits', 'gradientTransform'],
     radialGradient: ['id', 'cx', 'cy', 'r', 'fx', 'fy', 'gradientUnits'],
@@ -69,11 +118,7 @@ export function MessageBubble({ message }: Props) {
         {senderName}
         <time className="ml-2 text-xs">{formatTime(message.timestamp)}</time>
       </div>
-      <div
-        className={`chat-bubble ${
-          isAssistant ? '' : 'chat-bubble-primary'
-        }`}
-      >
+      <div className={`chat-bubble ${isAssistant ? '' : 'chat-bubble-primary'}`}>
         {isAssistant ? (
           <div className="chat-markdown">
             <ReactMarkdown
@@ -91,7 +136,10 @@ export function MessageBubble({ message }: Props) {
                     return <FileLink path={codeStr} />;
                   }
                   return (
-                    <code className="bg-base-300/40 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+                    <code
+                      className="bg-base-300/40 px-1 py-0.5 rounded text-sm font-mono"
+                      {...props}
+                    >
                       {children}
                     </code>
                   );
@@ -127,7 +175,12 @@ export function MessageBubble({ message }: Props) {
                 },
                 a({ href, children }) {
                   return (
-                    <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:opacity-80">
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 hover:opacity-80"
+                    >
                       {children}
                     </a>
                   );

@@ -38,9 +38,7 @@ export function Layout() {
                 key={to}
                 to={to}
                 role="tab"
-                className={({ isActive }) =>
-                  `tab gap-1.5 ${isActive ? 'tab-active' : ''}`
-                }
+                className={({ isActive }) => `tab gap-1.5 ${isActive ? 'tab-active' : ''}`}
               >
                 <Icon className="w-4 h-4" />
                 {label}
@@ -62,11 +60,7 @@ export function Layout() {
       {/* ---- Mobile bottom nav ---- */}
       <div className="dock sm:hidden">
         {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) => (isActive ? 'dock-active' : '')}
-          >
+          <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'dock-active' : '')}>
             <Icon className="w-5 h-5" />
             <span className="dock-label">{label}</span>
           </NavLink>
@@ -75,11 +69,7 @@ export function Layout() {
 
       {/* ---- Global file viewer modal ---- */}
       {viewerFile && (
-        <FileViewerModal
-          name={viewerFile.name}
-          content={viewerFile.content}
-          onClose={closeFile}
-        />
+        <FileViewerModal name={viewerFile.name} content={viewerFile.content} onClose={closeFile} />
       )}
     </div>
   );

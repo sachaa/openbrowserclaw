@@ -51,7 +51,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'write_file',
     description:
       'Write content to a file in the group workspace. ' +
-      'Creates the file and any intermediate directories if they don\'t exist. ' +
+      "Creates the file and any intermediate directories if they don't exist. " +
       'Overwrites the file if it already exists.',
     input_schema: {
       type: 'object',
@@ -163,7 +163,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       properties: {
         code: {
           type: 'string',
-          description: 'JavaScript code to execute. The return value of the last expression is captured.',
+          description:
+            'JavaScript code to execute. The return value of the last expression is captured.',
         },
       },
       required: ['code'],

@@ -4,8 +4,20 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Folder, Globe, Image, FileText, FileCode, FileJson, FileSpreadsheet,
-  File, Home, Search, Download, Trash2, X, FolderOpen,
+  Folder,
+  Globe,
+  Image,
+  FileText,
+  FileCode,
+  FileJson,
+  FileSpreadsheet,
+  File,
+  Home,
+  Search,
+  Download,
+  Trash2,
+  X,
+  FolderOpen,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { DEFAULT_GROUP_ID } from '../../config.js';
@@ -21,11 +33,20 @@ function getFileIcon(name: string, isDir: boolean): LucideIcon {
   if (isDir) return Folder;
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   const icons: Record<string, LucideIcon> = {
-    html: Globe, htm: Globe, svg: Globe,
-    png: Image, jpg: Image, jpeg: Image, gif: Image,
-    md: FileText, txt: FileText,
+    html: Globe,
+    htm: Globe,
+    svg: Globe,
+    png: Image,
+    jpg: Image,
+    jpeg: Image,
+    gif: Image,
+    md: FileText,
+    txt: FileText,
     json: FileJson,
-    js: FileCode, ts: FileCode, css: FileCode, xml: FileCode,
+    js: FileCode,
+    ts: FileCode,
+    css: FileCode,
+    xml: FileCode,
     csv: FileSpreadsheet,
   };
   return icons[ext] ?? File;
@@ -125,10 +146,7 @@ export function FilesPage() {
             </li>
             {path.map((segment, i) => (
               <li key={i}>
-                <button
-                  className="link link-hover"
-                  onClick={() => setPath(path.slice(0, i + 1))}
-                >
+                <button className="link link-hover" onClick={() => setPath(path.slice(0, i + 1))}>
                   {segment}
                 </button>
               </li>
@@ -146,14 +164,18 @@ export function FilesPage() {
               <span className="loading loading-spinner loading-md" />
             </div>
           ) : error ? (
-            <div role="alert" className="alert alert-error m-4">{error}</div>
+            <div role="alert" className="alert alert-error m-4">
+              {error}
+            </div>
           ) : entries.length === 0 ? (
             <div className="hero py-12">
               <div className="hero-content text-center">
                 <div>
                   <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   <p className="font-medium">No files yet</p>
-                  <p className="text-sm opacity-60 mt-1">Files created by the assistant will appear here</p>
+                  <p className="text-sm opacity-60 mt-1">
+                    Files created by the assistant will appear here
+                  </p>
                 </div>
               </div>
             </div>
@@ -163,23 +185,20 @@ export function FilesPage() {
                 {entries.map((entry) => (
                   <tr
                     key={entry.name}
-                    className={`hover cursor-pointer ${
-                      previewFile === entry.name ? 'active' : ''
-                    }`}
+                    className={`hover cursor-pointer ${previewFile === entry.name ? 'active' : ''}`}
                     onClick={() =>
-                      entry.isDir
-                        ? setPath([...path, entry.name])
-                        : handlePreview(entry.name)
+                      entry.isDir ? setPath([...path, entry.name]) : handlePreview(entry.name)
                     }
                   >
                     <td className="w-8 text-center">
-                      {(() => { const Icon = getFileIcon(entry.name, entry.isDir); return <Icon className="w-4 h-4 inline-block" />; })()}
+                      {(() => {
+                        const Icon = getFileIcon(entry.name, entry.isDir);
+                        return <Icon className="w-4 h-4 inline-block" />;
+                      })()}
                     </td>
                     <td className="font-medium">
                       {entry.name}
-                      {entry.isDir && (
-                        <span className="opacity-30 ml-1">/</span>
-                      )}
+                      {entry.isDir && <span className="opacity-30 ml-1">/</span>}
                     </td>
                   </tr>
                 ))}
@@ -193,7 +212,10 @@ export function FilesPage() {
           <div className="hidden md:flex flex-col w-1/2 border-l border-base-300 bg-base-200">
             <div className="flex items-center justify-between px-4 py-2 border-b border-base-300">
               <span className="font-medium text-sm truncate flex items-center gap-1.5">
-                {(() => { const Icon = getFileIcon(previewFile, false); return <Icon className="w-4 h-4" />; })()}
+                {(() => {
+                  const Icon = getFileIcon(previewFile, false);
+                  return <Icon className="w-4 h-4" />;
+                })()}
                 {previewFile}
               </span>
               <div className="flex gap-1">
@@ -243,7 +265,10 @@ export function FilesPage() {
         <div className="md:hidden fixed inset-0 z-50 bg-base-100 flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-base-300">
             <span className="font-medium truncate flex items-center gap-1.5">
-              {(() => { const Icon = getFileIcon(previewFile, false); return <Icon className="w-4 h-4" />; })()}
+              {(() => {
+                const Icon = getFileIcon(previewFile, false);
+                return <Icon className="w-4 h-4" />;
+              })()}
               {previewFile}
             </span>
             <div className="flex gap-1">
@@ -299,16 +324,14 @@ export function FilesPage() {
           <div className="modal-box max-w-sm">
             <h3 className="font-bold text-lg">Delete file?</h3>
             <p className="py-4">
-              Are you sure you want to delete <strong>{deleteConfirm}</strong>? This cannot be undone.
+              Are you sure you want to delete <strong>{deleteConfirm}</strong>? This cannot be
+              undone.
             </p>
             <div className="modal-action">
               <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>
                 Cancel
               </button>
-              <button
-                className="btn btn-error"
-                onClick={() => handleDelete(deleteConfirm)}
-              >
+              <button className="btn btn-error" onClick={() => handleDelete(deleteConfirm)}>
                 Delete
               </button>
             </div>

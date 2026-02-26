@@ -29,16 +29,13 @@ export function renderMarkdown(src: string): string {
 
   // Protect fenced code blocks from further processing
   const codeBlocks: string[] = [];
-  const withCodePlaceholders = input.replace(
-    /^```(\w*)\n([\s\S]*?)^```$/gm,
-    (_, lang, code) => {
-      const idx = codeBlocks.length;
-      const escaped = escapeHtml(code.replace(/\n$/, ''));
-      const langAttr = lang ? ` class="language-${escapeHtml(lang)}"` : '';
-      codeBlocks.push(`<pre><code${langAttr}>${escaped}</code></pre>`);
-      return `\x00CODE${idx}\x00`;
-    },
-  );
+  const withCodePlaceholders = input.replace(/^```(\w*)\n([\s\S]*?)^```$/gm, (_, lang, code) => {
+    const idx = codeBlocks.length;
+    const escaped = escapeHtml(code.replace(/\n$/, ''));
+    const langAttr = lang ? ` class="language-${escapeHtml(lang)}"` : '';
+    codeBlocks.push(`<pre><code${langAttr}>${escaped}</code></pre>`);
+    return `\x00CODE${idx}\x00`;
+  });
 
   // Split into lines for block-level processing
   const lines = withCodePlaceholders.split('\n');
@@ -110,7 +107,11 @@ function processBlocks(lines: string[]): string {
     if (line.startsWith('>')) {
       const quoteLines: string[] = [];
       let j = i;
-      while (j < lines.length && (lines[j].startsWith('>') || (lines[j].trim() !== '' && quoteLines.length > 0 && !lines[j].startsWith('#')))) {
+      while (
+        j < lines.length &&
+        (lines[j].startsWith('>') ||
+          (lines[j].trim() !== '' && quoteLines.length > 0 && !lines[j].startsWith('#')))
+      ) {
         if (lines[j].startsWith('>')) {
           quoteLines.push(lines[j].replace(/^>\s?/, ''));
         } else {
@@ -267,9 +268,7 @@ function parseList(
     }
   }
 
-  const inner = items
-    .map((item) => `<li>${inlineMarkdown(item)}</li>`)
-    .join('');
+  const inner = items.map((item) => `<li>${inlineMarkdown(item)}</li>`).join('');
 
   return { html: `<${type}>${inner}</${type}>`, consumed: i - start };
 }
@@ -288,23 +287,17 @@ function inlineMarkdown(text: string): string {
   s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
 
   // Images: ![alt](src)
-  s = s.replace(
-    /!\[([^\]]*)\]\(([^)]+)\)/g,
-    (_, alt, src) => {
-      const safeSrc = escapeAttr(restoreHtmlEntities(src));
-      const safeAlt = escapeAttr(alt);
-      return `<img src="${safeSrc}" alt="${safeAlt}" loading="lazy">`;
-    },
-  );
+  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
+    const safeSrc = escapeAttr(restoreHtmlEntities(src));
+    const safeAlt = escapeAttr(alt);
+    return `<img src="${safeSrc}" alt="${safeAlt}" loading="lazy">`;
+  });
 
   // Links: [text](url)
-  s = s.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    (_, text, url) => {
-      const safeUrl = escapeAttr(restoreHtmlEntities(url));
-      return `<a href="${safeUrl}" target="_blank" rel="noopener">${text}</a>`;
-    },
-  );
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+    const safeUrl = escapeAttr(restoreHtmlEntities(url));
+    return `<a href="${safeUrl}" target="_blank" rel="noopener">${text}</a>`;
+  });
 
   // Bold + italic
   s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');

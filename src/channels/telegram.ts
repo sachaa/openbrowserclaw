@@ -3,11 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Channel, InboundMessage } from '../types.js';
-import {
-  TELEGRAM_API_BASE,
-  TELEGRAM_MAX_LENGTH,
-  TELEGRAM_POLL_TIMEOUT,
-} from '../config.js';
+import { TELEGRAM_API_BASE, TELEGRAM_MAX_LENGTH, TELEGRAM_POLL_TIMEOUT } from '../config.js';
 
 type MessageCallback = (msg: InboundMessage) => void;
 
@@ -177,10 +173,7 @@ export class TelegramChannel implements Channel {
       (msg.contact ? `[Contact: ${msg.contact.first_name}]` : null) ||
       '[Unsupported message type]';
 
-    const senderName =
-      msg.from?.first_name ||
-      msg.from?.username ||
-      'Unknown';
+    const senderName = msg.from?.first_name || msg.from?.username || 'Unknown';
 
     this.messageCallback?.({
       id: String(msg.message_id),

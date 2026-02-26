@@ -54,11 +54,7 @@ export class Router {
     messages: Array<{ sender: string; content: string; timestamp: number }>,
   ): string {
     const escapeXml = (s: string) =>
-      s
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     const lines = messages.map(
       (m) =>

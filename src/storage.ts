@@ -54,10 +54,7 @@ function parsePath(filePath: string): { dirs: string[]; filename: string } {
 /**
  * Read a file from a group's workspace.
  */
-export async function readGroupFile(
-  groupId: string,
-  filePath: string,
-): Promise<string> {
+export async function readGroupFile(groupId: string, filePath: string): Promise<string> {
   const groupDir = await getGroupDir(groupId);
   const { dirs, filename } = parsePath(filePath);
 
@@ -97,10 +94,7 @@ export async function writeGroupFile(
 /**
  * List files and directories in a group's workspace directory.
  */
-export async function listGroupFiles(
-  groupId: string,
-  dirPath: string = '.',
-): Promise<string[]> {
+export async function listGroupFiles(groupId: string, dirPath: string = '.'): Promise<string[]> {
   const groupDir = await getGroupDir(groupId);
 
   let dir = groupDir;
@@ -121,10 +115,7 @@ export async function listGroupFiles(
 /**
  * Delete a file from a group's workspace.
  */
-export async function deleteGroupFile(
-  groupId: string,
-  filePath: string,
-): Promise<void> {
+export async function deleteGroupFile(groupId: string, filePath: string): Promise<void> {
   const groupDir = await getGroupDir(groupId);
   const { dirs, filename } = parsePath(filePath);
 
@@ -139,10 +130,7 @@ export async function deleteGroupFile(
 /**
  * Check if a file exists in a group's workspace.
  */
-export async function groupFileExists(
-  groupId: string,
-  filePath: string,
-): Promise<boolean> {
+export async function groupFileExists(groupId: string, filePath: string): Promise<boolean> {
   try {
     await readGroupFile(groupId, filePath);
     return true;

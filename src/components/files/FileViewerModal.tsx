@@ -73,9 +73,7 @@ export function FileViewerModal({ name, content, onClose }: Props) {
               title={name}
             />
           ) : (
-            <pre className="text-sm font-mono whitespace-pre-wrap break-all">
-              {content}
-            </pre>
+            <pre className="text-sm font-mono whitespace-pre-wrap break-all">{content}</pre>
           )}
         </div>
       </div>

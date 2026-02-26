@@ -37,7 +37,9 @@ export function App() {
     }
 
     boot();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) {
@@ -68,10 +70,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<Layout />}>
-          <Route
-            index
-            element={<Navigate to={isConfigured ? '/chat' : '/settings'} replace />}
-          />
+          <Route index element={<Navigate to={isConfigured ? '/chat' : '/settings'} replace />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="files" element={<FilesPage />} />
           <Route path="tasks" element={<TasksPage />} />

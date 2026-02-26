@@ -56,16 +56,11 @@ export function ChatActions({ disabled }: Props) {
                 : 'This will clear all messages and start a fresh conversation. This cannot be undone.'}
             </p>
             <div className="modal-action">
-              <button
-                className="btn btn-ghost"
-                onClick={() => setConfirmAction(null)}
-              >
+              <button className="btn btn-ghost" onClick={() => setConfirmAction(null)}>
                 Cancel
               </button>
               <button
-                className={`btn ${
-                  confirmAction === 'new-session' ? 'btn-error' : 'btn-primary'
-                }`}
+                className={`btn ${confirmAction === 'new-session' ? 'btn-error' : 'btn-primary'}`}
                 onClick={handleConfirm}
               >
                 {confirmAction === 'compact' ? 'Compact' : 'Clear & Start New'}

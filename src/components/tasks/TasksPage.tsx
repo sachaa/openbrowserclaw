@@ -16,7 +16,17 @@ import { ulid } from '../../ulid.js';
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-type ScheduleFrequency = 'every-minute' | 'every-5-min' | 'every-15-min' | 'every-30-min' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
+type ScheduleFrequency =
+  | 'every-minute'
+  | 'every-5-min'
+  | 'every-15-min'
+  | 'every-30-min'
+  | 'hourly'
+  | 'daily'
+  | 'weekdays'
+  | 'weekly'
+  | 'monthly'
+  | 'custom';
 
 interface SchedulePreset {
   label: string;
@@ -37,18 +47,34 @@ const PRESETS: SchedulePreset[] = [
   { label: 'Custom (cron)', value: 'custom', description: 'Enter a cron expression' },
 ];
 
-function buildCron(freq: ScheduleFrequency, hour: number, minute: number, dayOfWeek: number, dayOfMonth: number): string {
+function buildCron(
+  freq: ScheduleFrequency,
+  hour: number,
+  minute: number,
+  dayOfWeek: number,
+  dayOfMonth: number,
+): string {
   switch (freq) {
-    case 'every-minute': return '* * * * *';
-    case 'every-5-min': return '*/5 * * * *';
-    case 'every-15-min': return '*/15 * * * *';
-    case 'every-30-min': return '*/30 * * * *';
-    case 'hourly': return `${minute} * * * *`;
-    case 'daily': return `${minute} ${hour} * * *`;
-    case 'weekdays': return `${minute} ${hour} * * 1-5`;
-    case 'weekly': return `${minute} ${hour} * * ${dayOfWeek}`;
-    case 'monthly': return `${minute} ${hour} ${dayOfMonth} * *`;
-    case 'custom': return '* * * * *';
+    case 'every-minute':
+      return '* * * * *';
+    case 'every-5-min':
+      return '*/5 * * * *';
+    case 'every-15-min':
+      return '*/15 * * * *';
+    case 'every-30-min':
+      return '*/30 * * * *';
+    case 'hourly':
+      return `${minute} * * * *`;
+    case 'daily':
+      return `${minute} ${hour} * * *`;
+    case 'weekdays':
+      return `${minute} ${hour} * * 1-5`;
+    case 'weekly':
+      return `${minute} ${hour} * * ${dayOfWeek}`;
+    case 'monthly':
+      return `${minute} ${hour} ${dayOfMonth} * *`;
+    case 'custom':
+      return '* * * * *';
   }
 }
 
@@ -189,11 +215,16 @@ export function TasksPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold">Scheduled Tasks</h2>
-        <button
-          className="btn btn-primary btn-sm gap-1.5"
-          onClick={() => setShowForm(!showForm)}
-        >
-          {showForm ? <><X className="w-4 h-4" /> Cancel</> : <><Plus className="w-4 h-4" /> New Task</>}
+        <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowForm(!showForm)}>
+          {showForm ? (
+            <>
+              <X className="w-4 h-4" /> Cancel
+            </>
+          ) : (
+            <>
+              <Plus className="w-4 h-4" /> New Task
+            </>
+          )}
         </button>
       </div>
 
@@ -304,7 +335,9 @@ export function TasksPage() {
                   onChange={(e) => setDayOfWeek(Number(e.target.value))}
                 >
                   {DAYS_OF_WEEK.map((day, i) => (
-                    <option key={i} value={i}>{day}</option>
+                    <option key={i} value={i}>
+                      {day}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -355,18 +388,12 @@ export function TasksPage() {
             <div className="bg-base-200 rounded-lg px-3 py-2 text-sm">
               <span className="opacity-60">Schedule preview: </span>
               <span className="font-medium">{cronToHuman(previewCron)}</span>
-              <span className="opacity-50 ml-2 font-mono text-xs">
-                ({previewCron})
-              </span>
+              <span className="opacity-50 ml-2 font-mono text-xs">({previewCron})</span>
             </div>
 
             {/* Submit */}
             <div className="card-actions justify-end">
-              <button
-                className="btn btn-primary"
-                disabled={!prompt.trim()}
-                onClick={handleCreate}
-              >
+              <button className="btn btn-primary" disabled={!prompt.trim()} onClick={handleCreate}>
                 Create Task
               </button>
             </div>
@@ -402,9 +429,7 @@ export function TasksPage() {
                     <p className="font-medium line-clamp-2">{task.prompt}</p>
                     <p className="text-sm opacity-70 mt-1 flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5 inline" /> {cronToHuman(task.schedule)}
-                      <span className="opacity-50 ml-2 font-mono text-xs">
-                        ({task.schedule})
-                      </span>
+                      <span className="opacity-50 ml-2 font-mono text-xs">({task.schedule})</span>
                     </p>
                     {task.lastRun && (
                       <p className="text-xs opacity-50 mt-0.5">
@@ -438,17 +463,12 @@ export function TasksPage() {
         <dialog className="modal modal-open">
           <div className="modal-box max-w-sm">
             <h3 className="font-bold text-lg">Delete task?</h3>
-            <p className="py-4">
-              This scheduled task will be permanently removed.
-            </p>
+            <p className="py-4">This scheduled task will be permanently removed.</p>
             <div className="modal-action">
               <button className="btn btn-ghost" onClick={() => setDeleteConfirm(null)}>
                 Cancel
               </button>
-              <button
-                className="btn btn-error"
-                onClick={() => handleDelete(deleteConfirm)}
-              >
+              <button className="btn btn-error" onClick={() => handleDelete(deleteConfirm)}>
                 Delete
               </button>
             </div>

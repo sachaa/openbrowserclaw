@@ -3,12 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { create } from 'zustand';
-import type {
-  StoredMessage,
-  OrchestratorState,
-  TokenUsage,
-  ThinkingLogEntry,
-} from '../types.js';
+import type { StoredMessage, OrchestratorState, TokenUsage, ThinkingLogEntry } from '../types.js';
 import type { Orchestrator } from '../orchestrator.js';
 import { DEFAULT_GROUP_ID } from '../config.js';
 import { getRecentMessages } from '../db.js';

@@ -47,7 +47,7 @@ async function getOrCreateKey(): Promise<CryptoKey> {
   // Generate a non-extractable key — it can never be read by JS
   const key = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
-    false,           // extractable = false
+    false, // extractable = false
     ['encrypt', 'decrypt'],
   );
 
@@ -90,10 +90,6 @@ export async function decryptValue(encoded: string): Promise<string> {
   const combined = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
   const iv = combined.slice(0, IV_LENGTH);
   const ciphertext = combined.slice(IV_LENGTH);
-  const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    ciphertext,
-  );
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
   return new TextDecoder().decode(decrypted);
 }
