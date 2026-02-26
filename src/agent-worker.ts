@@ -43,6 +43,171 @@ self.onmessage = async (event: MessageEvent<WorkerInbound>) => {
 // ---------------------------------------------------------------------------
 
 async function handleInvoke(payload: InvokePayload): Promise<void> {
+  if (payload.provider === 'ollama') {
+    return invokeOllama(payload);
+  }
+  return invokeAnthropic(payload);
+}
+
+function getOpenAITools() {
+  return TOOL_DEFINITIONS.map((t) => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }));
+}
+
+async function invokeOllama(payload: InvokePayload): Promise<void> {
+  const { groupId, messages, systemPrompt, ollamaUrl, model, maxTokens } = payload;
+  post({ type: 'typing', payload: { groupId } });
+  log(groupId, 'info', 'Starting (Ollama)', `Model: ${model}`);
+
+  try {
+    const currentMessages: any[] = [];
+    if (systemPrompt) {
+      currentMessages.push({ role: 'system', content: systemPrompt });
+    }
+
+    for (const m of messages) {
+      currentMessages.push({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      });
+    }
+
+    let iterations = 0;
+    const maxIterations = 25;
+
+    while (iterations < maxIterations) {
+      iterations++;
+
+      const body = {
+        model,
+        messages: currentMessages,
+        tools: getOpenAITools(),
+        max_tokens: maxTokens,
+      };
+
+      log(
+        groupId,
+        'api-call',
+        `Ollama API call #${iterations}`,
+        `${currentMessages.length} messages in context`,
+      );
+
+      const res = await fetch(`${ollamaUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Ollama API error ${res.status}: ${await res.text()}`);
+      }
+
+      const result = await res.json();
+      const choice = result.choices[0];
+      const message = choice.message;
+
+      if (result.usage) {
+        post({
+          type: 'token-usage',
+          payload: {
+            groupId,
+            inputTokens: result.usage.prompt_tokens || 0,
+            outputTokens: result.usage.completion_tokens || 0,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            contextLimit: 8192,
+          },
+        });
+      }
+
+      if (message.content) {
+        const preview =
+          message.content.length > 200
+            ? message.content.slice(0, 200) + '…'
+            : message.content;
+        log(groupId, 'text', 'Response text', preview);
+      }
+
+      currentMessages.push(message);
+
+      if (choice.finish_reason === 'tool_calls' && message.tool_calls) {
+        for (const tc of message.tool_calls) {
+          const fn = tc.function;
+          const inputStr = fn.arguments || '{}';
+          log(groupId, 'tool-call', `Tool: ${fn.name}`, inputStr);
+
+          post({
+            type: 'tool-activity',
+            payload: { groupId, tool: fn.name, status: 'running' },
+          });
+
+          let inputCode = {};
+          try {
+            inputCode = JSON.parse(inputStr);
+          } catch {
+            // ignore JSON parse errors and pass empty object
+          }
+
+          const output = await executeTool(fn.name, inputCode, groupId);
+          const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
+
+          log(
+            groupId,
+            'tool-result',
+            `Result: ${fn.name}`,
+            outputStr.length > 500 ? outputStr.slice(0, 500) + '…' : outputStr,
+          );
+          post({
+            type: 'tool-activity',
+            payload: { groupId, tool: fn.name, status: 'done' },
+          });
+
+          currentMessages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            name: fn.name,
+            content: outputStr.slice(0, 100_000),
+          });
+        }
+        post({ type: 'typing', payload: { groupId } });
+      } else {
+        const text = message.content || '(no response)';
+        const cleaned = text
+          .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+          .trim();
+        post({
+          type: 'response',
+          payload: { groupId, text: cleaned || '(no response)' },
+        });
+        return;
+      }
+    }
+
+    post({
+      type: 'response',
+      payload: {
+        groupId,
+        text: '⚠️ Reached maximum tool-use iterations. Stopping to avoid infinite loops.',
+      },
+    });
+  } catch (err: unknown) {
+    post({
+      type: 'error',
+      payload: {
+        groupId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
+  }
+}
+
+async function invokeAnthropic(payload: InvokePayload): Promise<void> {
   const { groupId, messages, systemPrompt, apiKey, model, maxTokens } = payload;
 
   post({ type: 'typing', payload: { groupId } });
@@ -183,6 +348,68 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function handleCompact(payload: CompactPayload): Promise<void> {
+  if (payload.provider === 'ollama') {
+    return compactOllama(payload);
+  }
+  return compactAnthropic(payload);
+}
+
+async function compactOllama(payload: CompactPayload): Promise<void> {
+  const { groupId, messages, systemPrompt, ollamaUrl, model, maxTokens } = payload;
+  post({ type: 'typing', payload: { groupId } });
+  log(groupId, 'info', 'Compacting context', `Summarizing ${messages.length} messages`);
+
+  try {
+    const compactSystemPrompt = [
+      systemPrompt,
+      '',
+      '## COMPACTION TASK',
+      'Produce a concise summary of the conversation so far.',
+      'The summary will replace the full conversation history to stay within token limits.',
+    ].join('\n');
+
+    const currentMessages: any[] = [{ role: 'system', content: compactSystemPrompt }];
+    for (const m of messages) {
+      currentMessages.push({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      });
+    }
+    currentMessages.push({
+      role: 'user',
+      content:
+        'Please provide a concise summary of our entire conversation so far. Include all key facts, decisions, code discussed, and important context.',
+    });
+
+    const res = await fetch(`${ollamaUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: currentMessages,
+        max_tokens: Math.min(maxTokens, 4096),
+      }),
+    });
+
+    if (!res.ok) throw new Error(`Ollama API error: ${await res.text()}`);
+
+    const result = await res.json();
+    const summary = result.choices[0]?.message?.content || '';
+
+    log(groupId, 'info', 'Compaction complete', `Summary: ${summary.length} chars`);
+    post({ type: 'compact-done', payload: { groupId, summary } });
+  } catch (err: unknown) {
+    post({
+      type: 'error',
+      payload: {
+        groupId,
+        error: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    });
+  }
+}
+
+async function compactAnthropic(payload: CompactPayload): Promise<void> {
   const { groupId, messages, systemPrompt, apiKey, model, maxTokens } = payload;
 
   post({ type: 'typing', payload: { groupId } });

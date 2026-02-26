@@ -36,8 +36,15 @@ export function SettingsPage() {
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
   const [apiKeySaved, setApiKeySaved] = useState(false);
 
+  // Provider
+  const [provider, setProvider] = useState<'anthropic' | 'ollama'>(orch.getProvider());
+
+  // Ollama
+  const [ollamaUrl, setOllamaUrl] = useState(orch.getOllamaUrl());
+
   // Model
   const [model, setModel] = useState(orch.getModel());
+
 
   // Assistant name
   const [assistantName, setAssistantName] = useState(orch.getAssistantName());
@@ -148,6 +155,37 @@ export function SettingsPage() {
       </div>
 
       {/* ---- API Key ---- */}
+      {/* ---- AI Provider ---- */}
+      <div className="card card-bordered bg-base-200">
+        <div className="card-body p-4 sm:p-6 gap-3">
+          <h3 className="card-title text-base gap-2">
+            <Bot className="w-4 h-4" /> AI Provider
+          </h3>
+          <select
+            className="select select-bordered select-sm w-full"
+            value={provider}
+            onChange={async (e) => {
+              const val = e.target.value as 'anthropic' | 'ollama';
+              setProvider(val);
+              await orch.setProvider(val);
+
+              if (val === 'ollama' && model.startsWith('claude-')) {
+                setModel('');
+                await orch.setModel('');
+              } else if (val === 'anthropic' && !model.startsWith('claude-')) {
+                setModel('claude-sonnet-4-6');
+                await orch.setModel('claude-sonnet-4-6');
+              }
+            }}
+          >
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="ollama">Ollama (Local)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* ---- API Key ---- */}
+      {provider === 'anthropic' && (
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
           <h3 className="card-title text-base gap-2"><KeyRound className="w-4 h-4" /> Anthropic API Key</h3>
@@ -178,27 +216,64 @@ export function SettingsPage() {
               <span className="text-success text-sm flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>
             )}
           </div>
-          <p className="text-xs opacity-50">
+                  <p className="text-xs opacity-50">
             Your API key is encrypted and stored locally. It never leaves your browser.
           </p>
         </div>
       </div>
+      )}
+
+      {/* ---- Ollama Host ---- */}
+      {provider === 'ollama' && (
+        <div className="card card-bordered bg-base-200">
+          <div className="card-body p-4 sm:p-6 gap-3">
+            <h3 className="card-title text-base gap-2">
+              <HardDrive className="w-4 h-4" /> Ollama Host Configuration
+            </h3>
+            <fieldset className="fieldset">
+              <legend className="fieldset-legend">Ollama URL</legend>
+              <input
+                type="text"
+                className="input input-bordered input-sm w-full font-mono"
+                placeholder="http://localhost:11434"
+                value={ollamaUrl}
+                onChange={(e) => setOllamaUrl(e.target.value)}
+                onBlur={() => orch.setOllamaUrl(ollamaUrl.trim())}
+              />
+            </fieldset>
+          </div>
+        </div>
+      )}
 
       {/* ---- Model ---- */}
       <div className="card card-bordered bg-base-200">
         <div className="card-body p-4 sm:p-6 gap-3">
           <h3 className="card-title text-base gap-2"><Bot className="w-4 h-4" /> Model</h3>
-          <select
-            className="select select-bordered select-sm"
-            value={model}
-            onChange={(e) => handleModelChange(e.target.value)}
-          >
-            {MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          {provider === 'anthropic' ? (
+            <select
+              className="select select-bordered select-sm w-full"
+              value={model}
+              onChange={(e) => handleModelChange(e.target.value)}
+            >
+              {MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="input input-bordered input-sm w-full font-mono"
+              placeholder="Enter your ollama model name"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              onBlur={() => handleModelChange(model.trim())}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleModelChange(model.trim());
+              }}
+            />
+          )}
         </div>
       </div>
 

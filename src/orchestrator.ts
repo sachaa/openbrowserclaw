@@ -24,9 +24,11 @@ import {
   ASSISTANT_NAME,
   CONFIG_KEYS,
   CONTEXT_WINDOW_SIZE,
-  DEFAULT_GROUP_ID,
+DEFAULT_GROUP_ID,
   DEFAULT_MAX_TOKENS,
   DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_OLLAMA_URL,
   buildTriggerPattern,
 } from './config.js';
 import {
@@ -100,6 +102,8 @@ export class Orchestrator {
   private state: OrchestratorState = 'idle';
   private triggerPattern!: RegExp;
   private assistantName: string = ASSISTANT_NAME;
+  private provider: 'anthropic' | 'ollama' = DEFAULT_PROVIDER;
+  private ollamaUrl: string = DEFAULT_OLLAMA_URL;
   private apiKey: string = '';
   private model: string = DEFAULT_MODEL;
   private maxTokens: number = DEFAULT_MAX_TOKENS;
@@ -115,9 +119,15 @@ export class Orchestrator {
     await openDatabase();
 
     // Load config
+       // Load config
     this.assistantName = (await getConfig(CONFIG_KEYS.ASSISTANT_NAME)) || ASSISTANT_NAME;
     this.triggerPattern = buildTriggerPattern(this.assistantName);
+    this.provider =
+      ((await getConfig(CONFIG_KEYS.PROVIDER)) as 'anthropic' | 'ollama') || DEFAULT_PROVIDER;
+    this.ollamaUrl = (await getConfig(CONFIG_KEYS.OLLAMA_URL)) || DEFAULT_OLLAMA_URL;
+
     const storedKey = await getConfig(CONFIG_KEYS.ANTHROPIC_API_KEY);
+
     if (storedKey) {
       try {
         this.apiKey = await decryptValue(storedKey);
@@ -182,10 +192,31 @@ export class Orchestrator {
     return this.state;
   }
 
+  getProvider(): 'anthropic' | 'ollama' {
+    return this.provider;
+  }
+
+  async setProvider(val: 'anthropic' | 'ollama'): Promise<void> {
+    this.provider = val;
+    await setConfig(CONFIG_KEYS.PROVIDER, val);
+  }
+
+  getOllamaUrl(): string {
+    return this.ollamaUrl;
+  }
+
+  async setOllamaUrl(val: string): Promise<void> {
+    this.ollamaUrl = val;
+    await setConfig(CONFIG_KEYS.OLLAMA_URL, val);
+  }
+
   /**
-   * Check if the API key is configured.
+   * Check if the AI provider is configured.
    */
   isConfigured(): boolean {
+    if (this.provider === 'ollama') {
+      return this.ollamaUrl.trim().length > 0;
+    }
     return this.apiKey.length > 0;
   }
 
@@ -261,10 +292,12 @@ export class Orchestrator {
    * Asks Claude to produce a summary, then replaces the history with it.
    */
   async compactContext(groupId: string = DEFAULT_GROUP_ID): Promise<void> {
-    if (!this.apiKey) {
+    if (!this.isConfigured()) {
       this.events.emit('error', {
         groupId,
-        error: 'API key not configured. Cannot compact context.',
+        error: this.provider === 'anthropic'
+          ? 'API key not configured. Cannot compact context.'
+          : 'Ollama URL not configured. Cannot compact context.',
       });
       return;
     }
@@ -297,7 +330,9 @@ export class Orchestrator {
         groupId,
         messages,
         systemPrompt,
+        provider: this.provider,
         apiKey: this.apiKey,
+        ollamaUrl: this.ollamaUrl,
         model: this.model,
         maxTokens: this.maxTokens,
       },
@@ -350,12 +385,14 @@ export class Orchestrator {
   private async processQueue(): Promise<void> {
     if (this.processing) return;
     if (this.messageQueue.length === 0) return;
-    if (!this.apiKey) {
-      // Can't process without API key
+    if (!this.isConfigured()) {
+      // Can't process without configuration
       const msg = this.messageQueue.shift()!;
       this.events.emit('error', {
         groupId: msg.groupId,
-        error: 'API key not configured. Go to Settings to add your Anthropic API key.',
+        error: this.provider === 'anthropic'
+          ? 'API key not configured. Go to Settings to add your Anthropic API key.'
+          : 'Ollama URL not configured. Go to Settings to configure your Ollama Host.',
       });
       return;
     }
@@ -419,7 +456,9 @@ export class Orchestrator {
         groupId,
         messages,
         systemPrompt,
+        provider: this.provider,
         apiKey: this.apiKey,
+        ollamaUrl: this.ollamaUrl,
         model: this.model,
         maxTokens: this.maxTokens,
       },

@@ -76,7 +76,9 @@ export interface CompactPayload {
   groupId: string;
   messages: ConversationMessage[];
   systemPrompt: string;
+  provider: 'anthropic' | 'ollama';
   apiKey: string;
+  ollamaUrl: string;
   model: string;
   maxTokens: number;
 }
@@ -85,10 +87,13 @@ export interface InvokePayload {
   groupId: string;
   messages: ConversationMessage[];
   systemPrompt: string;
+  provider: 'anthropic' | 'ollama';
   apiKey: string;
+  ollamaUrl: string;
   model: string;
   maxTokens: number;
 }
+
 
 /** Messages sent from Agent Worker → main thread */
 export type WorkerOutbound =

@@ -19,6 +19,9 @@ export const CONTEXT_WINDOW_SIZE = 50;
 /** Max tokens for Claude API response */
 export const DEFAULT_MAX_TOKENS = 8096;
 
+/** Default provider */
+export const DEFAULT_PROVIDER = 'anthropic';
+
 /** Default model */
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
@@ -27,6 +30,9 @@ export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
 /** Anthropic API version header */
 export const ANTHROPIC_API_VERSION = '2023-06-01';
+
+/** Default Ollama URL */
+export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 
 /** Telegram Bot API base URL */
 export const TELEGRAM_API_BASE = 'https://api.telegram.org/bot';
@@ -61,6 +67,8 @@ export const DEFAULT_GROUP_ID = 'br:main';
 /** Config keys */
 export const CONFIG_KEYS = {
   ANTHROPIC_API_KEY: 'anthropic_api_key',
+  PROVIDER: 'provider',
+  OLLAMA_URL: 'ollama_url',
   TELEGRAM_BOT_TOKEN: 'telegram_bot_token',
   TELEGRAM_CHAT_IDS: 'telegram_chat_ids',
   TRIGGER_PATTERN: 'trigger_pattern',
