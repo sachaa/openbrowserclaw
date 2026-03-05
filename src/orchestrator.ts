@@ -43,6 +43,8 @@ import { readGroupFile } from './storage.js';
 import { encryptValue, decryptValue } from './crypto.js';
 import { BrowserChatChannel } from './channels/browser-chat.js';
 import { TelegramChannel } from './channels/telegram.js';
+import { IMessageChannel } from './channels/imessage.js';
+import type { IMessageMode } from './channels/imessage.js';
 import { Router } from './router.js';
 import { TaskScheduler } from './task-scheduler.js';
 import { ulid } from './ulid.js';
@@ -93,6 +95,7 @@ export class Orchestrator {
   readonly events = new EventBus();
   readonly browserChat = new BrowserChatChannel();
   readonly telegram = new TelegramChannel();
+  readonly imessage = new IMessageChannel();
 
   private router!: Router;
   private scheduler!: TaskScheduler;
@@ -106,6 +109,8 @@ export class Orchestrator {
   private messageQueue: InboundMessage[] = [];
   private processing = false;
   private pendingScheduledTasks = new Set<string>();
+  private destroyed = false;
+  private recentInboundIds = new Map<string, number>();
 
   /**
    * Initialize the orchestrator. Must be called before anything else.
@@ -133,8 +138,8 @@ export class Orchestrator {
       10,
     );
 
-    // Set up router
-    this.router = new Router(this.browserChat, this.telegram);
+    // Set up router (iMessage channel wired in below after config load)
+    this.router = new Router(this.browserChat, this.telegram, this.imessage);
 
     // Set up channels
     this.browserChat.onMessage((msg) => this.enqueue(msg));
@@ -147,6 +152,22 @@ export class Orchestrator {
       this.telegram.configure(telegramToken, chatIds);
       this.telegram.onMessage((msg) => this.enqueue(msg));
       this.telegram.start();
+    }
+
+    // Configure Photon iMessage if mode is set
+    if (this.destroyed) return;
+    const imessageMode = (await getConfig(CONFIG_KEYS.IMESSAGE_MODE)) as IMessageMode | null;
+    console.log('[orchestrator] iMessage config from DB:', { imessageMode });
+    if (this.destroyed) return;
+    if (imessageMode && imessageMode !== 'disabled') {
+      const serverUrl = (await getConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL)) || undefined;
+      const imessageApiKey = (await getConfig(CONFIG_KEYS.IMESSAGE_API_KEY)) || undefined;
+      console.log('[orchestrator] configuring iMessage:', { mode: imessageMode, serverUrl, hasApiKey: !!imessageApiKey });
+      this.imessage.configure({ mode: imessageMode, serverUrl, apiKey: imessageApiKey });
+      this.imessage.onMessage((msg) => this.enqueue(msg));
+      this.imessage.start();
+    } else {
+      console.log('[orchestrator] iMessage not configured — skipping');
     }
 
     // Set up agent worker
@@ -168,7 +189,7 @@ export class Orchestrator {
     this.scheduler.start();
 
     // Wire up browser chat display callback
-    this.browserChat.onDisplay((groupId, text, isFromMe) => {
+    this.browserChat.onDisplay((_groupId, _text, _isFromMe) => {
       // Display handled via events.emit('message', ...)
     });
 
@@ -241,6 +262,38 @@ export class Orchestrator {
   }
 
   /**
+   * Configure Photon iMessage (local or remote mode).
+   *
+   * Local mode  — uses @photon-ai/imessage-kit directly (macOS only).
+   * Remote mode — connects to a Photon server via socket.io + REST.
+   */
+  async configureIMessage(
+    mode: IMessageMode,
+    serverUrl?: string,
+    apiKey?: string,
+  ): Promise<void> {
+    console.log('[orchestrator] configureIMessage called:', { mode, serverUrl, hasApiKey: !!apiKey });
+    await setConfig(CONFIG_KEYS.IMESSAGE_MODE, mode);
+    if (serverUrl !== undefined) await setConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL, serverUrl);
+    if (apiKey !== undefined) await setConfig(CONFIG_KEYS.IMESSAGE_API_KEY, apiKey);
+
+    this.imessage.stop();
+    this.imessage.configure({ mode, serverUrl, apiKey });
+    this.imessage.onMessage((msg) => this.enqueue(msg));
+    this.imessage.start();
+  }
+
+  /**
+   * Disable iMessage integration.
+   */
+  async disableIMessage(): Promise<void> {
+    this.imessage.stop();
+    await setConfig(CONFIG_KEYS.IMESSAGE_MODE, '');
+    await setConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL, '');
+    await setConfig(CONFIG_KEYS.IMESSAGE_API_KEY, '');
+  }
+
+  /**
    * Submit a message from the browser chat UI.
    */
   submitMessage(text: string, groupId?: string): void {
@@ -308,9 +361,12 @@ export class Orchestrator {
    * Shut down everything.
    */
   shutdown(): void {
-    this.scheduler.stop();
+    this.destroyed = true;
+    this.scheduler?.stop();
     this.telegram.stop();
-    this.agentWorker.terminate();
+    this.imessage.stop();
+    this.agentWorker?.terminate();
+    this.messageQueue.length = 0;
   }
 
   // -----------------------------------------------------------------------
@@ -323,27 +379,49 @@ export class Orchestrator {
   }
 
   private async enqueue(msg: InboundMessage): Promise<void> {
-    // Save to DB
+    if (this.destroyed) return;
+
+    // Dedup: drop messages with the same id seen within the last 60 s
+    if (msg.id && this.recentInboundIds.has(msg.id)) return;
+    if (msg.id) {
+      this.recentInboundIds.set(msg.id, Date.now());
+      if (this.recentInboundIds.size > 500) {
+        const cutoff = Date.now() - 60_000;
+        for (const [id, ts] of this.recentInboundIds) {
+          if (ts < cutoff) this.recentInboundIds.delete(id);
+        }
+      }
+    }
+
     const stored: StoredMessage = {
       ...msg,
       isFromMe: false,
       isTrigger: false,
     };
 
-    // Check trigger
     const isBrowserMain = msg.groupId === DEFAULT_GROUP_ID;
     const hasTrigger = this.triggerPattern.test(msg.content.trim());
 
-    // Browser main group always triggers; other groups need the trigger pattern
+    console.log('[orchestrator] enqueue:', {
+      groupId: msg.groupId,
+      content: msg.content.slice(0, 50),
+      isBrowserMain,
+      hasTrigger,
+      triggerPattern: this.triggerPattern.source,
+      assistantName: this.assistantName,
+    });
+
     if (isBrowserMain || hasTrigger) {
       stored.isTrigger = true;
       this.messageQueue.push(msg);
+      console.log('[orchestrator] message queued for agent');
+    } else {
+      console.log('[orchestrator] message saved but NOT triggered — needs @' + this.assistantName);
     }
 
     await saveMessage(stored);
     this.events.emit('message', stored);
 
-    // Process queue
     this.processQueue();
   }
 
@@ -391,7 +469,11 @@ export class Orchestrator {
         sender: 'Scheduler',
         content: triggerContent,
         timestamp: Date.now(),
-        channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+        channel: groupId.startsWith('tg:')
+          ? 'telegram'
+          : groupId.startsWith('im:')
+            ? 'imessage'
+            : 'browser',
         isFromMe: false,
         isTrigger: true,
       };
@@ -490,7 +572,11 @@ export class Orchestrator {
       sender: this.assistantName,
       content: `📝 **Context Compacted**\n\n${summary}`,
       timestamp: Date.now(),
-      channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+      channel: groupId.startsWith('tg:')
+        ? 'telegram'
+        : groupId.startsWith('im:')
+          ? 'imessage'
+          : 'browser',
       isFromMe: true,
       isTrigger: false,
     };
@@ -509,7 +595,11 @@ export class Orchestrator {
       sender: this.assistantName,
       content: text,
       timestamp: Date.now(),
-      channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+      channel: groupId.startsWith('tg:')
+        ? 'telegram'
+        : groupId.startsWith('im:')
+          ? 'imessage'
+          : 'browser',
       isFromMe: true,
       isTrigger: false,
     };

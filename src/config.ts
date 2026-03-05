@@ -69,4 +69,8 @@ export const CONFIG_KEYS = {
   PASSPHRASE_SALT: 'passphrase_salt',
   PASSPHRASE_VERIFY: 'passphrase_verify',
   ASSISTANT_NAME: 'assistant_name',
+  // Photon iMessage
+  IMESSAGE_MODE: 'imessage_mode',         // 'local' | 'remote'
+  IMESSAGE_SERVER_URL: 'imessage_server_url', // remote mode only
+  IMESSAGE_API_KEY: 'imessage_api_key',   // remote mode only
 } as const;
