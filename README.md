@@ -42,7 +42,7 @@ Open `http://localhost:5173`, paste your [Anthropic API key](https://console.ant
 │  Channels:                                               │
 │  ├── Browser Chat (built-in)                             │
 │  ├── Telegram Bot API (optional, pure HTTPS)             │
-│  └── iMessage (optional, Photon managed)                │
+│  └── iMessage (optional, HTTPS + Socket.IO)              │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -60,7 +60,7 @@ Open `http://localhost:5173`, paste your [Anthropic API key](https://console.ant
 | `src/router.ts` | Routes messages to correct channel |
 | `src/channels/browser-chat.ts` | In-browser chat channel |
 | `src/channels/telegram.ts` | Telegram Bot API channel |
-| `src/channels/imessage.ts` | iMessage channel (Photon managed) |
+| `src/channels/imessage.ts` | iMessage channel (remote) |
 | `src/task-scheduler.ts` | Cron expression evaluation |
 | `src/crypto.ts` | AES-256-GCM encryption for stored credentials |
 | `src/ui/` | Chat, settings, and task manager components |
@@ -99,10 +99,10 @@ Optional. Works entirely via HTTPS — no WebSockets or special protocols.
 
 ## iMessage
 
-Optional. Connects to a Photon-managed iMessage server via Socket.IO + REST. Supports send, edit, unsend, tapback reactions, message effects, typing indicators, and polls.
+Optional. Connects to a remote iMessage server via Socket.IO + REST. Supports send, edit, unsend, tapback reactions, message effects, typing indicators, and polls.
 
 **Requirements:**
-- A Photon iMessage server (macOS host, any network-accessible address)
+- An iMessage server
 - Valid API key for the server
 
 **Setup:**
@@ -174,6 +174,6 @@ OpenBrowserClaw is a proof of concept. All data stays in your browser, nothing i
 - The `javascript` tool runs `eval()` in the Worker, which has access to `fetch()`. This means Claude can make arbitrary HTTP requests through the JS tool regardless of any `fetch_url` restrictions.
 - Outgoing HTTP requests (via `fetch_url` or the JS tool) have no user confirmation step.
 - The Telegram bot token is currently stored in plaintext.
-- The iMessage API key (remote mode) is stored in plaintext in IndexedDB.
+- The iMessage API key is currently stored in plaintext.
 
 This is a single-user local tool, not a multi-tenant platform. Contributions to improve the security model are welcome.

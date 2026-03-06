@@ -159,12 +159,9 @@ export class Orchestrator {
     const imessageApiKey = await getConfig(CONFIG_KEYS.IMESSAGE_API_KEY);
     if (this.destroyed) return;
     if (imessageServerUrl && imessageApiKey) {
-      console.log('[orchestrator] configuring iMessage:', { serverUrl: imessageServerUrl, hasApiKey: true });
       this.imessage.configure({ serverUrl: imessageServerUrl, apiKey: imessageApiKey });
       this.imessage.onMessage((msg) => this.enqueue(msg));
       this.imessage.start();
-    } else {
-      console.log('[orchestrator] iMessage not configured — skipping');
     }
 
     // Set up agent worker
@@ -259,10 +256,9 @@ export class Orchestrator {
   }
 
   /**
-   * Configure iMessage (remote mode via Photon-managed server).
+   * Configure iMessage (remote mode).
    */
   async configureIMessage(serverUrl: string, apiKey: string): Promise<void> {
-    console.log('[orchestrator] configureIMessage called:', { serverUrl, hasApiKey: !!apiKey });
     await setConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL, serverUrl);
     await setConfig(CONFIG_KEYS.IMESSAGE_API_KEY, apiKey);
 
@@ -391,23 +387,10 @@ export class Orchestrator {
     const isImessage = msg.groupId.startsWith('im:');
     const hasTrigger = this.triggerPattern.test(msg.content.trim());
 
-    console.log('[orchestrator] enqueue:', {
-      groupId: msg.groupId,
-      content: msg.content.slice(0, 50),
-      isBrowserMain,
-      isImessage,
-      hasTrigger,
-      triggerPattern: this.triggerPattern.source,
-      assistantName: this.assistantName,
-    });
-
     // iMessage and browser chat always trigger; other channels need @mention
     if (isBrowserMain || isImessage || hasTrigger) {
       stored.isTrigger = true;
       this.messageQueue.push(msg);
-      console.log('[orchestrator] message queued for agent');
-    } else {
-      console.log('[orchestrator] message saved but NOT triggered — needs @' + this.assistantName);
     }
 
     await saveMessage(stored);

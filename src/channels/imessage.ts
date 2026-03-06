@@ -2,7 +2,7 @@
 // OpenBrowserClaw — iMessage Channel
 // ---------------------------------------------------------------------------
 //
-// Connects to a Photon-managed iMessage server via Socket.IO + REST.
+// Connects to a remote iMessage server via Socket.IO + REST.
 // Browser-safe — uses socket.io-client and fetch() directly.
 //
 // groupId prefix: "im:"
@@ -112,23 +112,14 @@ export class IMessageChannel implements Channel {
   // -----------------------------------------------------------------------
 
   start(): void {
-    if (!this.enabled) {
-      console.warn('[iMessage] start() called but not enabled');
-      return;
-    }
-    if (this.running) {
-      console.log('[iMessage] already running — skipping duplicate start()');
-      return;
-    }
+    if (!this.enabled || this.running) return;
     this.running = true;
-    console.log('[iMessage] starting');
     this._startRemote().catch((err) => {
       console.error('[iMessage] start error:', err);
     });
   }
 
   stop(): void {
-    console.log('[iMessage] stop() called, running was:', this.running);
     this.running = false;
     if (this.guidCleanupTimer) {
       clearInterval(this.guidCleanupTimer);
@@ -223,11 +214,7 @@ export class IMessageChannel implements Channel {
   // -----------------------------------------------------------------------
 
   private async _startRemote(): Promise<void> {
-    if (!this.serverUrl) {
-      console.error('[iMessage] no serverUrl configured');
-      return;
-    }
-    console.log('[iMessage] connecting to', this.serverUrl, 'hasKey:', !!this.apiKey);
+    if (!this.serverUrl) return;
 
     if (this.socket) {
       this.socket.removeAllListeners();
@@ -244,16 +231,6 @@ export class IMessageChannel implements Channel {
     });
     this.socket = socket;
 
-    socket.on('connect', () => {
-      console.log('[iMessage] socket connected (id:', socket.id + '), waiting for server ready...');
-    });
-
-    const onReady = () => {
-      console.log('[iMessage] server ready — listening for new-message events');
-    };
-    socket.on('hello-world', onReady);
-    socket.on('auth-ok', onReady);
-
     socket.on('connect_error', (err) => {
       console.error('[iMessage] connect_error:', err.message);
     });
@@ -265,14 +242,6 @@ export class IMessageChannel implements Channel {
     socket.on('new-message', (msg: RemoteMessage) => {
       if (msg.guid && this.processedGuids.has(msg.guid)) return;
       if (msg.guid) this.processedGuids.set(msg.guid, Date.now());
-
-      console.log('[iMessage] new-message:', {
-        guid: msg.guid,
-        text: msg.text?.slice(0, 50),
-        isFromMe: msg.isFromMe,
-        sender: msg.handle?.address,
-        chatGuid: msg.chats?.[0]?.guid,
-      });
 
       if (!this.messageCallback) return;
       if (msg.isFromMe) return;
@@ -290,17 +259,10 @@ export class IMessageChannel implements Channel {
     });
 
     socket.on('disconnect', (reason) => {
-      console.warn('[iMessage] disconnected:', reason);
       if (!this.running) return;
       if (reason === 'io server disconnect') {
-        console.log('[iMessage] server kicked us — reconnecting...');
         socket.connect();
       }
-    });
-
-    socket.onAny((event, ...args) => {
-      if (['connect', 'hello-world', 'auth-ok', 'connect_error', 'auth-error', 'new-message', 'disconnect'].includes(event)) return;
-      console.log('[iMessage] event:', event, JSON.stringify(args).slice(0, 200));
     });
 
     if (!this.guidCleanupTimer) {

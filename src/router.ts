@@ -14,13 +14,13 @@ import { IMessageChannel } from './channels/imessage.js';
  * Prefix mapping:
  *   "br:"  → BrowserChatChannel
  *   "tg:"  → TelegramChannel
- *   "im:"  → IMessageChannel  (Photon iMessage — local or remote mode)
+ *   "im:"  → IMessageChannel
  */
 export class Router {
   constructor(
     private browserChat: BrowserChatChannel,
     private telegram: TelegramChannel | null,
-    private imessage: IMessageChannel | null = null,
+    private imessage: IMessageChannel | null,
   ) {}
 
   /**
