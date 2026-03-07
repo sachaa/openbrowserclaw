@@ -324,18 +324,21 @@ export class Orchestrator {
     const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
     const systemPrompt = buildSystemPrompt(this.assistantName, memory);
 
+    const basePayload = {
+      groupId,
+      messages,
+      systemPrompt,
+      model: this.model,
+      maxTokens: this.maxTokens,
+    };
+
+    const payload = this.provider === 'anthropic'
+      ? { ...basePayload, provider: 'anthropic' as const, apiKey: this.apiKey }
+      : { ...basePayload, provider: 'ollama' as const, ollamaUrl: this.ollamaUrl };
+
     this.agentWorker.postMessage({
       type: 'compact',
-      payload: {
-        groupId,
-        messages,
-        systemPrompt,
-        provider: this.provider,
-        apiKey: this.apiKey,
-        ollamaUrl: this.ollamaUrl,
-        model: this.model,
-        maxTokens: this.maxTokens,
-      },
+      payload,
     });
   }
 
@@ -449,19 +452,22 @@ export class Orchestrator {
 
     const systemPrompt = buildSystemPrompt(this.assistantName, memory);
 
+    const basePayload = {
+      groupId,
+      messages,
+      systemPrompt,
+      model: this.model,
+      maxTokens: this.maxTokens,
+    };
+
+    const payload = this.provider === 'anthropic'
+      ? { ...basePayload, provider: 'anthropic' as const, apiKey: this.apiKey }
+      : { ...basePayload, provider: 'ollama' as const, ollamaUrl: this.ollamaUrl };
+
     // Send to agent worker
     this.agentWorker.postMessage({
       type: 'invoke',
-      payload: {
-        groupId,
-        messages,
-        systemPrompt,
-        provider: this.provider,
-        apiKey: this.apiKey,
-        ollamaUrl: this.ollamaUrl,
-        model: this.model,
-        maxTokens: this.maxTokens,
-      },
+      payload,
     });
   }
 

@@ -42,10 +42,32 @@ export function SettingsPage() {
   // Ollama
   const [ollamaUrl, setOllamaUrl] = useState(orch.getOllamaUrl());
 
-  // Model
   const [model, setModel] = useState(orch.getModel());
 
+  // Ollama Auto-Discovery Models
+  const [ollamaModels, setOllamaModels] = useState<{ value: string; label: string }[]>([]);
 
+  useEffect(() => {
+    async function fetchOllamaModels() {
+      if (provider !== 'ollama' || !ollamaUrl) return;
+      try {
+        const res = await fetch(`${ollamaUrl}/api/tags`);
+        if (res.ok) {
+          const data = await res.json();
+          const models = data.models?.map((m: any) => ({ value: m.name, label: m.name })) || [];
+          setOllamaModels(models);
+          // Auto-select first model if the current one is empty or invalid
+          if (models.length > 0 && (!model || model.startsWith('claude-'))) {
+            setModel(models[0].value);
+            await orch.setModel(models[0].value);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch Ollama models:', err);
+      }
+    }
+    fetchOllamaModels();
+  }, [provider, ollamaUrl]);
   // Assistant name
   const [assistantName, setAssistantName] = useState(orch.getAssistantName());
 
@@ -170,8 +192,10 @@ export function SettingsPage() {
               await orch.setProvider(val);
 
               if (val === 'ollama' && model.startsWith('claude-')) {
-                setModel('');
-                await orch.setModel('');
+                // Let the useEffect handle the auto-selection if models are discovered.
+                // Alternatively, fall back to llama3 if no models found.
+                setModel('llama3');
+                await orch.setModel('llama3');
               } else if (val === 'anthropic' && !model.startsWith('claude-')) {
                 setModel('claude-sonnet-4-6');
                 await orch.setModel('claude-sonnet-4-6');
@@ -233,7 +257,7 @@ export function SettingsPage() {
             <fieldset className="fieldset">
               <legend className="fieldset-legend">Ollama URL</legend>
               <input
-                type="text"
+                type="url"
                 className="input input-bordered input-sm w-full font-mono"
                 placeholder="http://localhost:11434"
                 value={ollamaUrl}
@@ -261,11 +285,23 @@ export function SettingsPage() {
                 </option>
               ))}
             </select>
+          ) : ollamaModels.length > 0 ? (
+            <select
+              className="select select-bordered select-sm w-full"
+              value={model}
+              onChange={(e) => handleModelChange(e.target.value)}
+            >
+              {ollamaModels.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           ) : (
             <input
               type="text"
               className="input input-bordered input-sm w-full font-mono"
-              placeholder="Enter your ollama model name"
+              placeholder="Enter your ollama model name (e.g. llama3)"
               value={model}
               onChange={(e) => setModel(e.target.value)}
               onBlur={() => handleModelChange(model.trim())}
