@@ -72,23 +72,28 @@ export type WorkerInbound =
   | { type: 'cancel'; payload: { groupId: string } }
   | { type: 'compact'; payload: CompactPayload };
 
-export interface CompactPayload {
+export type CompactPayload = {
   groupId: string;
   messages: ConversationMessage[];
   systemPrompt: string;
-  apiKey: string;
   model: string;
   maxTokens: number;
-}
+} & (
+  | { provider: 'anthropic'; apiKey: string }
+  | { provider: 'ollama'; ollamaUrl: string }
+);
 
-export interface InvokePayload {
+export type InvokePayload = {
   groupId: string;
   messages: ConversationMessage[];
   systemPrompt: string;
-  apiKey: string;
   model: string;
   maxTokens: number;
-}
+} & (
+  | { provider: 'anthropic'; apiKey: string }
+  | { provider: 'ollama'; ollamaUrl: string }
+);
+
 
 /** Messages sent from Agent Worker → main thread */
 export type WorkerOutbound =
