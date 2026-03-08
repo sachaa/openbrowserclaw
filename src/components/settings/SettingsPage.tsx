@@ -48,11 +48,16 @@ export function SettingsPage() {
   const [ollamaModels, setOllamaModels] = useState<{ value: string; label: string }[]>([]);
 
   useEffect(() => {
-    async function fetchOllamaModels() {
+    let active = true;
+    const controller = new AbortController();
+
+    const fetchOllamaModels = setTimeout(async () => {
       if (provider !== 'ollama' || !ollamaUrl) return;
       try {
-        const res = await fetch(`${ollamaUrl}/api/tags`);
-        if (res.ok) {
+        const res = await fetch(`${ollamaUrl}/api/tags`, {
+          signal: controller.signal,
+        });
+        if (res.ok && active) {
           const data = await res.json();
           const models = data.models?.map((m: any) => ({ value: m.name, label: m.name })) || [];
           setOllamaModels(models);
@@ -62,12 +67,19 @@ export function SettingsPage() {
             await orch.setModel(models[0].value);
           }
         }
-      } catch (err) {
-        console.error('Failed to fetch Ollama models:', err);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Failed to fetch Ollama models:', err);
+        }
       }
-    }
-    fetchOllamaModels();
-  }, [provider, ollamaUrl]);
+    }, 500); // 500ms debounce
+
+    return () => {
+      active = false;
+      controller.abort();
+      clearTimeout(fetchOllamaModels);
+    };
+  }, [provider, ollamaUrl, model, orch]);
   // Assistant name
   const [assistantName, setAssistantName] = useState(orch.getAssistantName());
 

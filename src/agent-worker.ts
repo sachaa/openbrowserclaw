@@ -44,9 +44,9 @@ self.onmessage = async (event: MessageEvent<WorkerInbound>) => {
 
 
 interface AIProvider {
-  buildMessages(systemPrompt: string, messages: import('./types.js').ConversationMessage[], isCompact: boolean): any[];
-  callCompletion(payload: import('./types.js').InvokePayload | import('./types.js').CompactPayload, currentMessages: any[], maxTokens: number, useTools: boolean, systemPrompt: string): Promise<any>;
-  extractTokenUsage(result: any, payload: import('./types.js').InvokePayload | import('./types.js').CompactPayload): import('./types.js').TokenUsage | null;
+  buildMessages(systemPrompt: string, messages: ConversationMessage[], isCompact: boolean): any[];
+  callCompletion(payload: InvokePayload | CompactPayload, currentMessages: any[], maxTokens: number, useTools: boolean, systemPrompt: string): Promise<any>;
+  extractTokenUsage(result: any, payload: InvokePayload | CompactPayload): Promise<TokenUsage | null>;
   extractTextBlocks(result: any): string[];
   extractToolCalls(result: any): any[];
   appendAssistantMessage(currentMessages: any[], result: any): void;
@@ -101,7 +101,7 @@ const anthropicProvider: AIProvider = {
     if (!res.ok) throw new Error(`Anthropic API error ${res.status}: ${await res.text()}`);
     return res.json();
   },
-  extractTokenUsage(result, payload) {
+  async extractTokenUsage(result, payload) {
     if (!result.usage) return null;
     return {
       groupId: payload.groupId,
@@ -172,15 +172,41 @@ const ollamaProvider: AIProvider = {
     if (!res.ok) throw new Error(`Ollama API error ${res.status}: ${await res.text()}`);
     return res.json();
   },
-  extractTokenUsage(result, payload) {
+  async extractTokenUsage(result, payload) {
     if (!result.usage) return null;
+    let contextLimit = 8192; // Conservative fallback
+
+    try {
+      if (payload.provider === 'ollama') {
+        const res = await fetch(`${payload.ollamaUrl}/api/show`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: payload.model }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          // Extract context length from model info (often under num_ctx)
+          const numCtx = data.model_info?.['ollama.num_ctx'] || data.model_info?.['llama.context_length'] || data.details?.num_ctx;
+          if (numCtx && !isNaN(Number(numCtx))) {
+            contextLimit = Number(numCtx);
+          } else {
+            // common fallbacks
+            if (payload.model.toLowerCase().includes('llama3')) contextLimit = 128000;
+            else if (payload.model.toLowerCase().includes('mistral') || payload.model.toLowerCase().includes('mixtral')) contextLimit = 32000;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch ollama context limit', err);
+    }
+
     return {
       groupId: payload.groupId,
       inputTokens: result.usage.prompt_tokens || 0,
       outputTokens: result.usage.completion_tokens || 0,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
-      contextLimit: getContextLimit(payload.model),
+      contextLimit,
     };
   },
   extractTextBlocks(result) {
@@ -216,11 +242,11 @@ const ollamaProvider: AIProvider = {
   },
 };
 
-function getProvider(payload: import('./types.js').InvokePayload | import('./types.js').CompactPayload): AIProvider {
+function getProvider(payload: InvokePayload | CompactPayload): AIProvider {
   return payload.provider === 'ollama' ? ollamaProvider : anthropicProvider;
 }
 
-async function handleInvoke(payload: import('./types.js').InvokePayload): Promise<void> {
+async function handleInvoke(payload: InvokePayload): Promise<void> {
   const { groupId, messages, systemPrompt, model, maxTokens } = payload;
   const provider = getProvider(payload);
 
@@ -239,7 +265,7 @@ async function handleInvoke(payload: import('./types.js').InvokePayload): Promis
 
       const res = await provider.callCompletion(payload, currentMessages, maxTokens, true, systemPrompt);
 
-      const usage = provider.extractTokenUsage(res, payload);
+      const usage = await provider.extractTokenUsage(res, payload);
       if (usage) post({ type: 'token-usage', payload: usage });
 
       const texts = provider.extractTextBlocks(res);
@@ -299,7 +325,7 @@ async function handleInvoke(payload: import('./types.js').InvokePayload): Promis
 // Context compaction — ask Claude/Ollama to summarize the conversation
 // ---------------------------------------------------------------------------
 
-async function handleCompact(payload: import('./types.js').CompactPayload): Promise<void> {
+async function handleCompact(payload: CompactPayload): Promise<void> {
   const { groupId, messages, systemPrompt, model, maxTokens } = payload;
   const provider = getProvider(payload);
 
