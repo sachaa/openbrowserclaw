@@ -79,6 +79,7 @@ export interface CompactPayload {
   apiKey: string;
   model: string;
   maxTokens: number;
+  baseUrl?: string;
 }
 
 export interface InvokePayload {
@@ -88,6 +89,7 @@ export interface InvokePayload {
   apiKey: string;
   model: string;
   maxTokens: number;
+  baseUrl?: string;
 }
 
 /** Messages sent from Agent Worker → main thread */

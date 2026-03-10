@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import {
   Palette, KeyRound, Eye, EyeOff, Bot, MessageSquare,
-  Smartphone, HardDrive, Lock, Check,
+  Smartphone, HardDrive, Lock, Check, Link,
 } from 'lucide-react';
 import { getConfig, setConfig } from '../../db.js';
 import { CONFIG_KEYS } from '../../config.js';
@@ -35,6 +35,10 @@ export function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
   const [apiKeySaved, setApiKeySaved] = useState(false);
+
+  // Base URL
+  const [baseUrl, setBaseUrl] = useState(orch.getBaseUrl());
+  const [baseUrlSaved, setBaseUrlSaved] = useState(false);
 
   // Model
   const [model, setModel] = useState(orch.getModel());
@@ -96,6 +100,12 @@ export function SettingsPage() {
     await orch.setApiKey(apiKey.trim());
     setApiKeySaved(true);
     setTimeout(() => setApiKeySaved(false), 2000);
+  }
+
+  async function handleSaveBaseUrl() {
+    await orch.setBaseUrl(baseUrl.trim());
+    setBaseUrlSaved(true);
+    setTimeout(() => setBaseUrlSaved(false), 2000);
   }
 
   async function handleModelChange(value: string) {
@@ -180,6 +190,35 @@ export function SettingsPage() {
           </div>
           <p className="text-xs opacity-50">
             Your API key is encrypted and stored locally. It never leaves your browser.
+          </p>
+        </div>
+      </div>
+
+      {/* ---- Custom Base URL ---- */}
+      <div className="card card-bordered bg-base-200">
+        <div className="card-body p-4 sm:p-6 gap-3">
+          <h3 className="card-title text-base gap-2"><Link className="w-4 h-4" /> API Base URL</h3>
+          <input
+            type="url"
+            className="input input-bordered input-sm w-full font-mono"
+            placeholder="https://api.anthropic.com/v1/messages"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleSaveBaseUrl}
+            >
+              Save
+            </button>
+            {baseUrlSaved && (
+              <span className="text-success text-sm flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>
+            )}
+          </div>
+          <p className="text-xs opacity-50">
+            Override the API endpoint. Leave blank to use the default Anthropic endpoint.
+            Compatible with OpenAI-format proxies that support the Anthropic messages API.
           </p>
         </div>
       </div>

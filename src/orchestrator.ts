@@ -103,6 +103,7 @@ export class Orchestrator {
   private apiKey: string = '';
   private model: string = DEFAULT_MODEL;
   private maxTokens: number = DEFAULT_MAX_TOKENS;
+  private baseUrl: string = '';
   private messageQueue: InboundMessage[] = [];
   private processing = false;
   private pendingScheduledTasks = new Set<string>();
@@ -132,6 +133,7 @@ export class Orchestrator {
       (await getConfig(CONFIG_KEYS.MAX_TOKENS)) || String(DEFAULT_MAX_TOKENS),
       10,
     );
+    this.baseUrl = (await getConfig(CONFIG_KEYS.BASE_URL)) || '';
 
     // Set up router
     this.router = new Router(this.browserChat, this.telegram);
@@ -211,6 +213,21 @@ export class Orchestrator {
   async setModel(model: string): Promise<void> {
     this.model = model;
     await setConfig(CONFIG_KEYS.MODEL, model);
+  }
+
+  /**
+   * Get custom base URL (empty string means use the default Anthropic endpoint).
+   */
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
+  /**
+   * Update custom base URL. Empty string restores the default Anthropic endpoint.
+   */
+  async setBaseUrl(url: string): Promise<void> {
+    this.baseUrl = url;
+    await setConfig(CONFIG_KEYS.BASE_URL, url);
   }
 
   /**
@@ -300,6 +317,7 @@ export class Orchestrator {
         apiKey: this.apiKey,
         model: this.model,
         maxTokens: this.maxTokens,
+        baseUrl: this.baseUrl || undefined,
       },
     });
   }
@@ -422,6 +440,7 @@ export class Orchestrator {
         apiKey: this.apiKey,
         model: this.model,
         maxTokens: this.maxTokens,
+        baseUrl: this.baseUrl || undefined,
       },
     });
   }
