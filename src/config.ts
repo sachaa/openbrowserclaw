@@ -22,7 +22,7 @@ export const DEFAULT_MAX_TOKENS = 8096;
 /** Default model */
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
-/** Anthropic API endpoint */
+/** Default Anthropic API endpoint */
 export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
 /** Anthropic API version header */
@@ -69,4 +69,5 @@ export const CONFIG_KEYS = {
   PASSPHRASE_SALT: 'passphrase_salt',
   PASSPHRASE_VERIFY: 'passphrase_verify',
   ASSISTANT_NAME: 'assistant_name',
+  BASE_URL: 'base_url',
 } as const;

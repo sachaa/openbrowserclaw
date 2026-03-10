@@ -43,7 +43,8 @@ self.onmessage = async (event: MessageEvent<WorkerInbound>) => {
 // ---------------------------------------------------------------------------
 
 async function handleInvoke(payload: InvokePayload): Promise<void> {
-  const { groupId, messages, systemPrompt, apiKey, model, maxTokens } = payload;
+  const { groupId, messages, systemPrompt, apiKey, model, maxTokens, baseUrl } = payload;
+  const apiUrl = baseUrl || ANTHROPIC_API_URL;
 
   post({ type: 'typing', payload: { groupId } });
   log(groupId, 'info', 'Starting', `Model: ${model} · Max tokens: ${maxTokens}`);
@@ -67,7 +68,7 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
 
       log(groupId, 'api-call', `API call #${iterations}`, `${currentMessages.length} messages in context`);
 
-      const res = await fetch(ANTHROPIC_API_URL, {
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -80,7 +81,7 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
 
       if (!res.ok) {
         const errBody = await res.text();
-        throw new Error(`Anthropic API error ${res.status}: ${errBody}`);
+        throw new Error(`API error ${res.status}: ${errBody}`);
       }
 
       const result = await res.json();
@@ -183,7 +184,8 @@ async function handleInvoke(payload: InvokePayload): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function handleCompact(payload: CompactPayload): Promise<void> {
-  const { groupId, messages, systemPrompt, apiKey, model, maxTokens } = payload;
+  const { groupId, messages, systemPrompt, apiKey, model, maxTokens, baseUrl } = payload;
+  const apiUrl = baseUrl || ANTHROPIC_API_URL;
 
   post({ type: 'typing', payload: { groupId } });
   log(groupId, 'info', 'Compacting context', `Summarizing ${messages.length} messages`);
@@ -216,7 +218,7 @@ async function handleCompact(payload: CompactPayload): Promise<void> {
       messages: compactMessages,
     };
 
-    const res = await fetch(ANTHROPIC_API_URL, {
+    const res = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -229,7 +231,7 @@ async function handleCompact(payload: CompactPayload): Promise<void> {
 
     if (!res.ok) {
       const errBody = await res.text();
-      throw new Error(`Anthropic API error ${res.status}: ${errBody}`);
+      throw new Error(`API error ${res.status}: ${errBody}`);
     }
 
     const result = await res.json();
