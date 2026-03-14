@@ -41,7 +41,8 @@ Open `http://localhost:5173`, paste your [Anthropic API key](https://console.ant
 │                                                          │
 │  Channels:                                               │
 │  ├── Browser Chat (built-in)                             │
-│  └── Telegram Bot API (optional, pure HTTPS)             │
+│  ├── Telegram Bot API (optional, pure HTTPS)             │
+│  └── iMessage (optional, HTTPS + Socket.IO)              │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -59,18 +60,19 @@ Open `http://localhost:5173`, paste your [Anthropic API key](https://console.ant
 | `src/router.ts` | Routes messages to correct channel |
 | `src/channels/browser-chat.ts` | In-browser chat channel |
 | `src/channels/telegram.ts` | Telegram Bot API channel |
+| `src/channels/imessage.ts` | iMessage channel (remote) |
 | `src/task-scheduler.ts` | Cron expression evaluation |
 | `src/crypto.ts` | AES-256-GCM encryption for stored credentials |
 | `src/ui/` | Chat, settings, and task manager components |
 
 ## How It Works
 
-1. **You type a message** in the browser chat (or send one via Telegram)
+1. **You type a message** in the browser chat (or send one via Telegram / iMessage)
 2. **The orchestrator** checks the trigger pattern, saves to IndexedDB, queues for processing
 3. **The agent worker** (a Web Worker) sends your message + conversation history to the Anthropic API
 4. **Claude responds**, possibly using tools (bash, file I/O, fetch, JavaScript)
 5. **Tool results** are fed back to Claude in a loop until it produces a final text response
-6. **The response** is routed back to the originating channel (browser chat or Telegram)
+6. **The response** is routed back to the originating channel (browser chat, Telegram, or iMessage)
 
 ## Tools
 
@@ -95,6 +97,22 @@ Optional. Works entirely via HTTPS — no WebSockets or special protocols.
 
 **Caveat**: The browser tab must be open for the bot to respond. Messages queue on Telegram's side and are processed when you reopen the tab.
 
+## iMessage
+
+Optional. Connects to a remote iMessage server via Socket.IO + REST.
+
+**Requirements:**
+- An iMessage server
+- Valid API key for the server
+
+**Setup:**
+Open Settings → iMessage, enter your server URL and API key, and save.
+
+**How it works:**
+- Each iMessage chat appears as a separate group with the prefix `im:` followed by the chat GUID (e.g. `im:iMessage;-;+1234567890`).
+- Every incoming message triggers a response automatically — no `@mention` needed.
+- Responses are sent back to the originating iMessage chat.
+
 ## WebVM (Optional)
 
 The `bash` tool runs commands in a v86-emulated Alpine Linux. To enable:
@@ -117,7 +135,7 @@ Without these assets, the `bash` tool returns a helpful error. All other tools w
 | Database | SQLite (better-sqlite3) | IndexedDB |
 | Files | Filesystem | OPFS |
 | Primary channel | WhatsApp | In-browser chat |
-| Other channels | Telegram, Discord | Telegram |
+| Other channels | Telegram, Discord, iMessage | Telegram, iMessage |
 | Agent SDK | Claude Agent SDK | Raw Anthropic API |
 | Background tasks | launchd service | setInterval (tab must be open) |
 | Deployment | Self-hosted server | Static files (any CDN) |
@@ -156,5 +174,6 @@ OpenBrowserClaw is a proof of concept. All data stays in your browser, nothing i
 - The `javascript` tool runs `eval()` in the Worker, which has access to `fetch()`. This means Claude can make arbitrary HTTP requests through the JS tool regardless of any `fetch_url` restrictions.
 - Outgoing HTTP requests (via `fetch_url` or the JS tool) have no user confirmation step.
 - The Telegram bot token is currently stored in plaintext.
+- The iMessage API key is currently stored in plaintext.
 
 This is a single-user local tool, not a multi-tenant platform. Contributions to improve the security model are welcome.

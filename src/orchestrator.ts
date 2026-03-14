@@ -43,6 +43,7 @@ import { readGroupFile } from './storage.js';
 import { encryptValue, decryptValue } from './crypto.js';
 import { BrowserChatChannel } from './channels/browser-chat.js';
 import { TelegramChannel } from './channels/telegram.js';
+import { IMessageChannel } from './channels/imessage.js';
 import { Router } from './router.js';
 import { TaskScheduler } from './task-scheduler.js';
 import { ulid } from './ulid.js';
@@ -93,6 +94,7 @@ export class Orchestrator {
   readonly events = new EventBus();
   readonly browserChat = new BrowserChatChannel();
   readonly telegram = new TelegramChannel();
+  readonly imessage = new IMessageChannel();
 
   private router!: Router;
   private scheduler!: TaskScheduler;
@@ -106,6 +108,8 @@ export class Orchestrator {
   private messageQueue: InboundMessage[] = [];
   private processing = false;
   private pendingScheduledTasks = new Set<string>();
+  private destroyed = false;
+  private recentInboundIds = new Map<string, number>();
 
   /**
    * Initialize the orchestrator. Must be called before anything else.
@@ -133,8 +137,8 @@ export class Orchestrator {
       10,
     );
 
-    // Set up router
-    this.router = new Router(this.browserChat, this.telegram);
+    // Set up router (iMessage channel wired in below after config load)
+    this.router = new Router(this.browserChat, this.telegram, this.imessage);
 
     // Set up channels
     this.browserChat.onMessage((msg) => this.enqueue(msg));
@@ -147,6 +151,17 @@ export class Orchestrator {
       this.telegram.configure(telegramToken, chatIds);
       this.telegram.onMessage((msg) => this.enqueue(msg));
       this.telegram.start();
+    }
+
+    // Configure iMessage if server URL + API key exist
+    if (this.destroyed) return;
+    const imessageServerUrl = await getConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL);
+    const imessageApiKey = await getConfig(CONFIG_KEYS.IMESSAGE_API_KEY);
+    if (this.destroyed) return;
+    if (imessageServerUrl && imessageApiKey) {
+      this.imessage.configure({ serverUrl: imessageServerUrl, apiKey: imessageApiKey });
+      this.imessage.onMessage((msg) => this.enqueue(msg));
+      this.imessage.start();
     }
 
     // Set up agent worker
@@ -168,7 +183,7 @@ export class Orchestrator {
     this.scheduler.start();
 
     // Wire up browser chat display callback
-    this.browserChat.onDisplay((groupId, text, isFromMe) => {
+    this.browserChat.onDisplay((_groupId, _text, _isFromMe) => {
       // Display handled via events.emit('message', ...)
     });
 
@@ -241,6 +256,28 @@ export class Orchestrator {
   }
 
   /**
+   * Configure iMessage (remote mode).
+   */
+  async configureIMessage(serverUrl: string, apiKey: string): Promise<void> {
+    await setConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL, serverUrl);
+    await setConfig(CONFIG_KEYS.IMESSAGE_API_KEY, apiKey);
+
+    this.imessage.stop();
+    this.imessage.configure({ serverUrl, apiKey });
+    this.imessage.onMessage((msg) => this.enqueue(msg));
+    this.imessage.start();
+  }
+
+  /**
+   * Disable iMessage integration.
+   */
+  async disableIMessage(): Promise<void> {
+    this.imessage.disable();
+    await setConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL, '');
+    await setConfig(CONFIG_KEYS.IMESSAGE_API_KEY, '');
+  }
+
+  /**
    * Submit a message from the browser chat UI.
    */
   submitMessage(text: string, groupId?: string): void {
@@ -308,9 +345,12 @@ export class Orchestrator {
    * Shut down everything.
    */
   shutdown(): void {
-    this.scheduler.stop();
+    this.destroyed = true;
+    this.scheduler?.stop();
     this.telegram.stop();
-    this.agentWorker.terminate();
+    this.imessage.stop();
+    this.agentWorker?.terminate();
+    this.messageQueue.length = 0;
   }
 
   // -----------------------------------------------------------------------
@@ -323,19 +363,35 @@ export class Orchestrator {
   }
 
   private async enqueue(msg: InboundMessage): Promise<void> {
-    // Save to DB
+    if (this.destroyed) return;
+
+    // Dedup: drop messages with the same id seen within the last 60 s
+    if (msg.id) {
+      const now = Date.now();
+      const seenAt = this.recentInboundIds.get(msg.id);
+      if (seenAt && now - seenAt < 60_000) return;
+
+      this.recentInboundIds.set(msg.id, now);
+      if (this.recentInboundIds.size > 500) {
+        const cutoff = now - 60_000;
+        for (const [id, ts] of this.recentInboundIds) {
+          if (ts < cutoff) this.recentInboundIds.delete(id);
+        }
+      }
+    }
+
     const stored: StoredMessage = {
       ...msg,
       isFromMe: false,
       isTrigger: false,
     };
 
-    // Check trigger
     const isBrowserMain = msg.groupId === DEFAULT_GROUP_ID;
+    const isImessage = msg.groupId.startsWith('im:');
     const hasTrigger = this.triggerPattern.test(msg.content.trim());
 
-    // Browser main group always triggers; other groups need the trigger pattern
-    if (isBrowserMain || hasTrigger) {
+    // iMessage and browser chat always trigger; other channels need @mention
+    if (isBrowserMain || isImessage || hasTrigger) {
       stored.isTrigger = true;
       this.messageQueue.push(msg);
     }
@@ -343,7 +399,6 @@ export class Orchestrator {
     await saveMessage(stored);
     this.events.emit('message', stored);
 
-    // Process queue
     this.processQueue();
   }
 
@@ -391,7 +446,11 @@ export class Orchestrator {
         sender: 'Scheduler',
         content: triggerContent,
         timestamp: Date.now(),
-        channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+        channel: groupId.startsWith('tg:')
+          ? 'telegram'
+          : groupId.startsWith('im:')
+            ? 'imessage'
+            : 'browser',
         isFromMe: false,
         isTrigger: true,
       };
@@ -490,7 +549,11 @@ export class Orchestrator {
       sender: this.assistantName,
       content: `📝 **Context Compacted**\n\n${summary}`,
       timestamp: Date.now(),
-      channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+      channel: groupId.startsWith('tg:')
+        ? 'telegram'
+        : groupId.startsWith('im:')
+          ? 'imessage'
+          : 'browser',
       isFromMe: true,
       isTrigger: false,
     };
@@ -502,29 +565,33 @@ export class Orchestrator {
   }
 
   private async deliverResponse(groupId: string, text: string): Promise<void> {
-    // Save to DB
     const stored: StoredMessage = {
       id: ulid(),
       groupId,
       sender: this.assistantName,
       content: text,
       timestamp: Date.now(),
-      channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+      channel: groupId.startsWith('tg:')
+        ? 'telegram'
+        : groupId.startsWith('im:')
+          ? 'imessage'
+          : 'browser',
       isFromMe: true,
       isTrigger: false,
     };
     await saveMessage(stored);
 
-    // Route to channel
-    await this.router.send(groupId, text);
+    try {
+      await this.router.send(groupId, text);
+    } catch (err) {
+      console.error(`[${stored.channel}] Failed to deliver response:`, err);
+    }
 
-    // Play notification chime for scheduled task responses
     if (this.pendingScheduledTasks.has(groupId)) {
       this.pendingScheduledTasks.delete(groupId);
       playNotificationChime();
     }
 
-    // Emit for UI
     this.events.emit('message', stored);
     this.events.emit('typing', { groupId, typing: false });
 

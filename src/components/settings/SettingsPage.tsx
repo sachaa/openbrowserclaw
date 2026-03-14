@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import {
   Palette, KeyRound, Eye, EyeOff, Bot, MessageSquare,
-  Smartphone, HardDrive, Lock, Check,
+  Smartphone, HardDrive, Lock, Check, MessageCircle,
 } from 'lucide-react';
 import { getConfig, setConfig } from '../../db.js';
 import { CONFIG_KEYS } from '../../config.js';
@@ -47,6 +47,14 @@ export function SettingsPage() {
   const [telegramChatIds, setTelegramChatIds] = useState('');
   const [telegramSaved, setTelegramSaved] = useState(false);
 
+  // iMessage
+  const [imessageEnabled, setImessageEnabled] = useState(false);
+  const [imessageServerUrl, setImessageServerUrl] = useState('');
+  const [imessageApiKey, setImessageApiKey] = useState('');
+  const [imessageApiKeyMasked, setImessageApiKeyMasked] = useState(true);
+  const [imessageSaved, setImessageSaved] = useState(false);
+  const [imessageDisabled, setImessageDisabled] = useState(false);
+
   // Storage
   const [storageUsage, setStorageUsage] = useState(0);
   const [storageQuota, setStorageQuota] = useState(0);
@@ -80,6 +88,13 @@ export function SettingsPage() {
           setTelegramChatIds(chatIds);
         }
       }
+
+      // iMessage
+      const storedServerUrl = await getConfig(CONFIG_KEYS.IMESSAGE_SERVER_URL);
+      if (storedServerUrl) setImessageServerUrl(storedServerUrl);
+      const storedImApiKey = await getConfig(CONFIG_KEYS.IMESSAGE_API_KEY);
+      if (storedImApiKey) setImessageApiKey(storedImApiKey);
+      if (storedServerUrl && storedImApiKey) setImessageEnabled(true);
 
       // Storage
       const est = await getStorageEstimate();
@@ -117,12 +132,30 @@ export function SettingsPage() {
     setTimeout(() => setTelegramSaved(false), 2000);
   }
 
+  async function handleIMessageSave() {
+    if (!imessageServerUrl.trim() || !imessageApiKey.trim()) return;
+    await orch.configureIMessage(imessageServerUrl.trim(), imessageApiKey.trim());
+    setImessageEnabled(true);
+    setImessageSaved(true);
+    setTimeout(() => setImessageSaved(false), 2000);
+  }
+
+  async function handleIMessageDisable() {
+    await orch.disableIMessage();
+    setImessageEnabled(false);
+    setImessageServerUrl('');
+    setImessageApiKey('');
+    setImessageDisabled(true);
+    setTimeout(() => setImessageDisabled(false), 2000);
+  }
+
   async function handleRequestPersistent() {
     const granted = await requestPersistentStorage();
     setIsPersistent(granted);
   }
 
   const storagePercent = storageQuota > 0 ? (storageUsage / storageQuota) * 100 : 0;
+  const imessageSaveDisabled = !imessageServerUrl.trim() || !imessageApiKey.trim();
 
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-6 max-w-3xl mx-auto space-y-4">
@@ -259,6 +292,85 @@ export function SettingsPage() {
               <span className="text-success text-sm flex items-center gap-1"><Check className="w-4 h-4" /> Saved</span>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* ---- iMessage ---- */}
+      <div className="card card-bordered bg-base-200">
+        <div className="card-body p-4 sm:p-6 gap-3">
+          <h3 className="card-title text-base gap-2">
+            <MessageCircle className="w-4 h-4" /> iMessage
+          </h3>
+
+          <fieldset className="fieldset">
+            <legend className="fieldset-legend">Mode</legend>
+            <div className="text-sm opacity-70">Remote</div>
+            <p className="fieldset-label opacity-60">
+              Connects to a remote iMessage server via Socket.IO.
+            </p>
+          </fieldset>
+
+          <fieldset className="fieldset">
+            <legend className="fieldset-legend">Server URL</legend>
+            <input
+              type="url"
+              className="input input-bordered input-sm w-full font-mono"
+              placeholder="https://your-imessage-server.example.com"
+              value={imessageServerUrl}
+              onChange={(e) => setImessageServerUrl(e.target.value)}
+            />
+          </fieldset>
+          <fieldset className="fieldset">
+            <legend className="fieldset-legend">API Key</legend>
+            <div className="flex gap-2">
+              <input
+                type={imessageApiKeyMasked ? 'password' : 'text'}
+                className="input input-bordered input-sm w-full flex-1 font-mono"
+                placeholder="your-api-key"
+                value={imessageApiKey}
+                onChange={(e) => setImessageApiKey(e.target.value)}
+              />
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setImessageApiKeyMasked(!imessageApiKeyMasked)}
+              >
+                {imessageApiKeyMasked ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              </button>
+            </div>
+          </fieldset>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleIMessageSave}
+              disabled={imessageSaveDisabled}
+            >
+              Save iMessage Config
+            </button>
+            {imessageEnabled && (
+              <button
+                className="btn btn-ghost btn-sm text-error"
+                onClick={handleIMessageDisable}
+              >
+                Disable
+              </button>
+            )}
+            {imessageSaved && (
+              <span className="text-success text-sm flex items-center gap-1">
+                <Check className="w-4 h-4" /> Saved
+              </span>
+            )}
+            {imessageDisabled && (
+              <span className="text-warning text-sm flex items-center gap-1">
+                <Check className="w-4 h-4" /> Disabled
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs opacity-50">
+            iMessage conversations appear as separate chat groups.
+            Every incoming message triggers a response automatically — no @mention needed.
+          </p>
         </div>
       </div>
 

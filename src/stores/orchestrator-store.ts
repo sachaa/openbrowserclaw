@@ -34,6 +34,7 @@ interface OrchestratorStoreState {
 }
 
 let orchestratorInstance: Orchestrator | null = null;
+let storeInitialized = false;
 
 export function getOrchestrator(): Orchestrator {
   if (!orchestratorInstance) throw new Error('Orchestrator not initialized');
@@ -80,6 +81,8 @@ export const useOrchestratorStore = create<OrchestratorStoreState>((set, get) =>
  */
 export async function initOrchestratorStore(orch: Orchestrator): Promise<void> {
   orchestratorInstance = orch;
+  if (storeInitialized) return;
+  storeInitialized = true;
   const store = useOrchestratorStore;
 
   // Subscribe to events

@@ -5,6 +5,7 @@
 import type { Channel } from './types.js';
 import { BrowserChatChannel } from './channels/browser-chat.js';
 import { TelegramChannel } from './channels/telegram.js';
+import { IMessageChannel } from './channels/imessage.js';
 
 /**
  * Routes outbound messages and typing indicators to the correct channel
@@ -13,11 +14,13 @@ import { TelegramChannel } from './channels/telegram.js';
  * Prefix mapping:
  *   "br:"  → BrowserChatChannel
  *   "tg:"  → TelegramChannel
+ *   "im:"  → IMessageChannel
  */
 export class Router {
   constructor(
     private browserChat: BrowserChatChannel,
     private telegram: TelegramChannel | null,
+    private imessage: IMessageChannel | null,
   ) {}
 
   /**
@@ -70,6 +73,9 @@ export class Router {
   private findChannel(groupId: string): Channel | null {
     if (groupId.startsWith('tg:')) {
       return this.telegram;
+    }
+    if (groupId.startsWith('im:')) {
+      return this.imessage;
     }
     return this.browserChat;
   }

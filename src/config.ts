@@ -69,4 +69,7 @@ export const CONFIG_KEYS = {
   PASSPHRASE_SALT: 'passphrase_salt',
   PASSPHRASE_VERIFY: 'passphrase_verify',
   ASSISTANT_NAME: 'assistant_name',
+  // iMessage (remote)
+  IMESSAGE_SERVER_URL: 'imessage_server_url',
+  IMESSAGE_API_KEY: 'imessage_api_key',
 } as const;

@@ -12,6 +12,20 @@ import { FilesPage } from './components/files/FilesPage.js';
 import { TasksPage } from './components/tasks/TasksPage.js';
 import { SettingsPage } from './components/settings/SettingsPage.js';
 
+// Module-level singleton — survives React StrictMode double-mounts.
+let singletonReady: Promise<Orchestrator> | null = null;
+
+function getOrCreateOrchestrator(): Promise<Orchestrator> {
+  if (!singletonReady) {
+    singletonReady = (async () => {
+      const orch = new Orchestrator();
+      await orch.init();
+      return orch;
+    })();
+  }
+  return singletonReady;
+}
+
 export function App() {
   const orchRef = useRef<Orchestrator | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,9 +37,8 @@ export function App() {
 
     async function boot() {
       try {
-        const orch = new Orchestrator();
+        const orch = await getOrCreateOrchestrator();
         orchRef.current = orch;
-        await orch.init();
         await initOrchestratorStore(orch);
         if (!cancelled) setLoading(false);
       } catch (err) {
