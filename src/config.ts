@@ -50,7 +50,7 @@ export const FETCH_MAX_RESPONSE = 20_000;
 export const DB_NAME = 'openbrowserclaw';
 
 /** IndexedDB version */
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 /** OPFS root directory name */
 export const OPFS_ROOT = 'openbrowserclaw';
@@ -69,4 +69,32 @@ export const CONFIG_KEYS = {
   PASSPHRASE_SALT: 'passphrase_salt',
   PASSPHRASE_VERIFY: 'passphrase_verify',
   ASSISTANT_NAME: 'assistant_name',
+  LLM_PROVIDER_TYPE: 'llm_provider_type',
+  LOCAL_MODEL_ID: 'local_model_id',
 } as const;
+
+/** Available local ONNX models */
+export const LOCAL_MODELS = {
+  GEMMA_3_1B: {
+    id: 'onnx-community/gemma-3-1b-it-ONNX',
+    name: 'Gemma 3 1B IT',
+    size: '~1GB',
+    contextLength: 8192,
+    description: 'Better quality, slower inference',
+  },
+  QWEN_3_5_0_8B: {
+    id: 'onnx-community/Qwen3.5-0.8B-ONNX',
+    name: 'Qwen 3.5 0.8B',
+    size: '~800MB',
+    contextLength: 32768,
+    description: 'Fast with good quality and large context window',
+  },
+} as const;
+
+export type LocalModelId = keyof typeof LOCAL_MODELS;
+
+/** Default local model */
+export const DEFAULT_LOCAL_MODEL_ID: LocalModelId = 'GEMMA_3_1B';
+
+/** ONNX Cache directory */
+export const ONNX_CACHE_DIR = 'onnx-local-cache';

@@ -5,11 +5,10 @@
 // The orchestrator is the main thread coordinator. It manages:
 // - State machine (idle → thinking → responding)
 // - Message queue and routing
-// - Agent worker lifecycle
+// - Agent worker lifecycle (for Claude)
+// - Local LLM provider (for ONNX models with streaming support)
 // - Channel coordination
 // - Task scheduling
-//
-// This mirrors NanoClaw's src/index.ts but adapted for browser primitives.
 
 import type {
   InboundMessage,
@@ -27,7 +26,11 @@ import {
   DEFAULT_GROUP_ID,
   DEFAULT_MAX_TOKENS,
   DEFAULT_MODEL,
+  FETCH_MAX_RESPONSE,
   buildTriggerPattern,
+  LOCAL_MODELS,
+  type LocalModelId,
+  DEFAULT_LOCAL_MODEL_ID,
 } from './config.js';
 import {
   openDatabase,
@@ -39,13 +42,15 @@ import {
   saveTask,
   clearGroupMessages,
 } from './db.js';
-import { readGroupFile } from './storage.js';
+import { readGroupFile, writeGroupFile, listGroupFiles } from './storage.js';
 import { encryptValue, decryptValue } from './crypto.js';
 import { BrowserChatChannel } from './channels/browser-chat.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { Router } from './router.js';
 import { TaskScheduler } from './task-scheduler.js';
 import { ulid } from './ulid.js';
+import type { ProviderType, ModelLoadProgress } from './providers';
+import { ONNXProvider } from './providers';
 
 // ---------------------------------------------------------------------------
 // Event emitter for UI updates
@@ -62,6 +67,8 @@ type EventMap = {
   'session-reset': { groupId: string };
   'context-compacted': { groupId: string; summary: string };
   'token-usage': import('./types.js').TokenUsage;
+  'provider-loading': { loading: boolean; progress: number; status: string };
+  'streaming-aborted': { groupId: string };
 };
 
 type EventCallback<T> = (data: T) => void;
@@ -106,23 +113,35 @@ export class Orchestrator {
   private messageQueue: InboundMessage[] = [];
   private processing = false;
   private pendingScheduledTasks = new Set<string>();
+  
+  // Provider support
+  private providerType: ProviderType = 'claude';
+  private localProvider: ONNXProvider | null = null;
+  private providerLoading = false;
+  
+  // Abort control for streaming
+  private _abortStreaming: boolean = false;
 
   /**
    * Initialize the orchestrator. Must be called before anything else.
    */
   async init(): Promise<void> {
-    // Open database
     await openDatabase();
 
-    // Load config
+    // Load configuration
     this.assistantName = (await getConfig(CONFIG_KEYS.ASSISTANT_NAME)) || ASSISTANT_NAME;
     this.triggerPattern = buildTriggerPattern(this.assistantName);
+    
+    const savedProvider = await getConfig(CONFIG_KEYS.LLM_PROVIDER_TYPE);
+    if (savedProvider === 'claude' || savedProvider === 'onnx') {
+      this.providerType = savedProvider;
+    }
+    
     const storedKey = await getConfig(CONFIG_KEYS.ANTHROPIC_API_KEY);
     if (storedKey) {
       try {
         this.apiKey = await decryptValue(storedKey);
       } catch {
-        // Stored as plaintext from before encryption — clear it
         this.apiKey = '';
         await setConfig(CONFIG_KEYS.ANTHROPIC_API_KEY, '');
       }
@@ -133,13 +152,9 @@ export class Orchestrator {
       10,
     );
 
-    // Set up router
     this.router = new Router(this.browserChat, this.telegram);
-
-    // Set up channels
     this.browserChat.onMessage((msg) => this.enqueue(msg));
 
-    // Configure Telegram if token exists
     const telegramToken = await getConfig(CONFIG_KEYS.TELEGRAM_BOT_TOKEN);
     if (telegramToken) {
       const chatIdsRaw = await getConfig(CONFIG_KEYS.TELEGRAM_CHAT_IDS);
@@ -149,7 +164,6 @@ export class Orchestrator {
       this.telegram.start();
     }
 
-    // Set up agent worker
     this.agentWorker = new Worker(
       new URL('./agent-worker.ts', import.meta.url),
       { type: 'module' },
@@ -161,36 +175,155 @@ export class Orchestrator {
       console.error('Agent worker error:', err);
     };
 
-    // Set up task scheduler
     this.scheduler = new TaskScheduler((groupId, prompt) =>
       this.invokeAgent(groupId, prompt),
     );
     this.scheduler.start();
 
-    // Wire up browser chat display callback
-    this.browserChat.onDisplay((groupId, text, isFromMe) => {
-      // Display handled via events.emit('message', ...)
-    });
-
     this.events.emit('ready', undefined);
   }
 
   /**
-   * Get the current state.
+   * Get current orchestrator state
    */
   getState(): OrchestratorState {
     return this.state;
   }
 
   /**
-   * Check if the API key is configured.
+   * Get current provider type
+   */
+  getProviderType(): ProviderType {
+    return this.providerType;
+  }
+
+  /**
+   * Switch between Claude and local provider
+   */
+  async setProviderType(type: ProviderType): Promise<void> {
+    this.providerType = type;
+    await setConfig(CONFIG_KEYS.LLM_PROVIDER_TYPE, type);
+    
+    // Cleanup local provider when switching to Claude
+    if (this.localProvider && type === 'claude') {
+      await this.localProvider.dispose?.();
+      this.localProvider = null;
+    }
+  }
+
+  /**
+   * Check if orchestrator is properly configured for the current provider
    */
   isConfigured(): boolean {
+    if (this.providerType === 'onnx') {
+      return true; // Local provider needs no API key
+    }
     return this.apiKey.length > 0;
   }
 
   /**
-   * Update the API key.
+   * Check if currently using local provider
+   */
+  isLocalProvider(): boolean {
+    return this.providerType === 'onnx';
+  }
+
+  /**
+   * Check WebGPU availability for local models
+   */
+  async checkWebGPU(): Promise<{ available: boolean; reason?: string }> {
+    return ONNXProvider.checkWebGPU();
+  }
+
+  /**
+   * Initialize local model provider with selected model
+   */
+  async initializeLocalProvider(
+    onProgress?: (prog: ModelLoadProgress) => void
+  ): Promise<void> {
+    if (this.providerType !== 'onnx') {
+      throw new Error('Not using local provider');
+    }
+
+    // Get saved model ID or use default
+    const savedModelId = await getConfig(CONFIG_KEYS.LOCAL_MODEL_ID);
+    const modelId = (savedModelId && savedModelId in LOCAL_MODELS) 
+      ? savedModelId as LocalModelId 
+      : DEFAULT_LOCAL_MODEL_ID;
+
+    // Dispose existing provider if model changed
+    if (this.localProvider && this.localProvider.modelId !== modelId) {
+      await this.localProvider.dispose?.();
+      this.localProvider = null;
+    }
+
+    // Skip if already ready
+    if (this.localProvider && this.localProvider.isReady()) {
+      return;
+    }
+
+    this.providerLoading = true;
+    this.events.emit('provider-loading', { 
+      loading: true, 
+      progress: 0, 
+      status: 'Initializing...' 
+    });
+
+    try {
+      this.localProvider = new ONNXProvider(modelId);
+      await this.localProvider.initialize((prog: ModelLoadProgress) => {
+        // Check if aborted during initialization
+        if (this._abortStreaming) {
+          throw new Error('Initialization aborted');
+        }
+        this.events.emit('provider-loading', { 
+          loading: true, 
+          progress: prog.progress, 
+          status: prog.status 
+        });
+        onProgress?.(prog);
+      });
+
+      this.events.emit('provider-loading', { 
+        loading: false, 
+        progress: 100, 
+        status: 'Ready' 
+      });
+    } catch (error) {
+      this.providerLoading = false;
+      this.events.emit('provider-loading', { 
+        loading: false, 
+        progress: 0, 
+        status: 'Failed to load model' 
+      });
+      throw error;
+    } finally {
+      this.providerLoading = false;
+    }
+  }
+
+  /**
+   * Check if local model is loaded and ready
+   */
+  isLocalProviderReady(): boolean {
+    return this.localProvider?.isReady() ?? false;
+  }
+
+  /**
+   * Abort ongoing streaming or model loading
+   */
+  abortStreaming(): void {
+    this._abortStreaming = true;
+    this.localProvider?.abort();
+    
+    // Reset after short delay
+    setTimeout(() => {
+      this._abortStreaming = false;
+    }, 100);
+  }
+
+  /**
+   * Set Claude API key
    */
   async setApiKey(key: string): Promise<void> {
     this.apiKey = key;
@@ -199,14 +332,14 @@ export class Orchestrator {
   }
 
   /**
-   * Get current model.
+   * Get current Claude model
    */
   getModel(): string {
     return this.model;
   }
 
   /**
-   * Update the model.
+   * Set Claude model
    */
   async setModel(model: string): Promise<void> {
     this.model = model;
@@ -214,14 +347,14 @@ export class Orchestrator {
   }
 
   /**
-   * Get assistant name.
+   * Get assistant name
    */
   getAssistantName(): string {
     return this.assistantName;
   }
 
   /**
-   * Update assistant name and trigger pattern.
+   * Set assistant name
    */
   async setAssistantName(name: string): Promise<void> {
     this.assistantName = name;
@@ -230,7 +363,7 @@ export class Orchestrator {
   }
 
   /**
-   * Configure Telegram.
+   * Configure Telegram bot integration
    */
   async configureTelegram(token: string, chatIds: string[]): Promise<void> {
     await setConfig(CONFIG_KEYS.TELEGRAM_BOT_TOKEN, token);
@@ -241,26 +374,32 @@ export class Orchestrator {
   }
 
   /**
-   * Submit a message from the browser chat UI.
+   * Submit a message from the browser UI
    */
   submitMessage(text: string, groupId?: string): void {
     this.browserChat.submit(text, groupId);
   }
 
   /**
-   * Start a completely new session — clears message history for the group.
+   * Start a new session (clear conversation history)
    */
   async newSession(groupId: string = DEFAULT_GROUP_ID): Promise<void> {
-    // Clear messages from DB
     await clearGroupMessages(groupId);
     this.events.emit('session-reset', { groupId });
   }
 
   /**
-   * Compact (summarize) the current context to reduce token usage.
-   * Asks Claude to produce a summary, then replaces the history with it.
+   * Compact conversation context to reduce token usage
    */
   async compactContext(groupId: string = DEFAULT_GROUP_ID): Promise<void> {
+    if (this.providerType === 'onnx') {
+      this.events.emit('error', {
+        groupId,
+        error: 'Context compaction is not supported with local models yet.',
+      });
+      return;
+    }
+
     if (!this.apiKey) {
       this.events.emit('error', {
         groupId,
@@ -280,13 +419,10 @@ export class Orchestrator {
     this.setState('thinking');
     this.events.emit('typing', { groupId, typing: true });
 
-    // Load group memory
     let memory = '';
     try {
       memory = await readGroupFile(groupId, 'CLAUDE.md');
-    } catch {
-      // No memory file yet
-    }
+    } catch {}
 
     const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
     const systemPrompt = buildSystemPrompt(this.assistantName, memory);
@@ -305,16 +441,21 @@ export class Orchestrator {
   }
 
   /**
-   * Shut down everything.
+   * Shutdown and cleanup all resources
    */
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.scheduler.stop();
     this.telegram.stop();
     this.agentWorker.terminate();
+    
+    if (this.localProvider) {
+      await this.localProvider.dispose?.();
+      this.localProvider = null;
+    }
   }
 
   // -----------------------------------------------------------------------
-  // Private
+  // Private methods
   // -----------------------------------------------------------------------
 
   private setState(state: OrchestratorState): void {
@@ -323,18 +464,15 @@ export class Orchestrator {
   }
 
   private async enqueue(msg: InboundMessage): Promise<void> {
-    // Save to DB
     const stored: StoredMessage = {
       ...msg,
       isFromMe: false,
       isTrigger: false,
     };
 
-    // Check trigger
     const isBrowserMain = msg.groupId === DEFAULT_GROUP_ID;
     const hasTrigger = this.triggerPattern.test(msg.content.trim());
 
-    // Browser main group always triggers; other groups need the trigger pattern
     if (isBrowserMain || hasTrigger) {
       stored.isTrigger = true;
       this.messageQueue.push(msg);
@@ -343,15 +481,14 @@ export class Orchestrator {
     await saveMessage(stored);
     this.events.emit('message', stored);
 
-    // Process queue
     this.processQueue();
   }
 
   private async processQueue(): Promise<void> {
     if (this.processing) return;
     if (this.messageQueue.length === 0) return;
-    if (!this.apiKey) {
-      // Can't process without API key
+    
+    if (this.providerType === 'claude' && !this.apiKey) {
       const msg = this.messageQueue.shift()!;
       this.events.emit('error', {
         groupId: msg.groupId,
@@ -369,7 +506,6 @@ export class Orchestrator {
       console.error('Failed to invoke agent:', err);
     } finally {
       this.processing = false;
-      // Process next in queue
       if (this.messageQueue.length > 0) {
         this.processQueue();
       }
@@ -377,12 +513,11 @@ export class Orchestrator {
   }
 
   private async invokeAgent(groupId: string, triggerContent: string): Promise<void> {
+    // Show thinking immediately for local models (before model loading)
     this.setState('thinking');
     this.router.setTyping(groupId, true);
     this.events.emit('typing', { groupId, typing: true });
 
-    // If this is a scheduled task, save the prompt as a user message so
-    // it appears in conversation context and in the chat UI.
     if (triggerContent.startsWith('[SCHEDULED TASK]')) {
       this.pendingScheduledTasks.add(groupId);
       const stored: StoredMessage = {
@@ -399,31 +534,129 @@ export class Orchestrator {
       this.events.emit('message', stored);
     }
 
-    // Load group memory
     let memory = '';
     try {
       memory = await readGroupFile(groupId, 'CLAUDE.md');
-    } catch {
-      // No memory file yet — that's fine
-    }
+    } catch {}
 
-    // Build conversation context
     const messages = await buildConversationMessages(groupId, CONTEXT_WINDOW_SIZE);
+    const systemPrompt = buildSystemPrompt(this.assistantName, memory, this.providerType);
 
-    const systemPrompt = buildSystemPrompt(this.assistantName, memory);
+    if (this.providerType === 'onnx') {
+      // Use streaming for local models
+      await this.invokeLocalAgent(groupId, messages, systemPrompt);
+    } else {
+      this.agentWorker.postMessage({
+        type: 'invoke',
+        payload: {
+          groupId,
+          messages,
+          systemPrompt,
+          apiKey: this.apiKey,
+          model: this.model,
+          maxTokens: this.maxTokens,
+        },
+      });
+    }
+  }
 
-    // Send to agent worker
-    this.agentWorker.postMessage({
-      type: 'invoke',
-      payload: {
+  /**
+   * Invoke local LLM agent with streaming response
+   * Local models (Gemma, Qwen) are too small for reliable tool calling
+   */
+  private async invokeLocalAgent(
+    groupId: string,
+    messages: ConversationMessage[],
+    systemPrompt: string
+  ): Promise<void> {
+    // Reset abort flag
+    this._abortStreaming = false;
+    
+    try {
+      // Show thinking indicator while loading model
+      if (!this.localProvider || !this.localProvider.isReady()) {
+        this.events.emit('thinking-log', {
+          groupId,
+          kind: 'info',
+          timestamp: Date.now(),
+          label: 'Loading model',
+          detail: 'Initializing local model...',
+        });
+        
+        await this.initializeLocalProvider();
+        
+        // Check if aborted during loading
+        if (this._abortStreaming) {
+          throw new Error('Aborted');
+        }
+      }
+
+      this.events.emit('thinking-log', {
         groupId,
-        messages,
-        systemPrompt,
-        apiKey: this.apiKey,
-        model: this.model,
-        maxTokens: this.maxTokens,
-      },
-    });
+        kind: 'info',
+        timestamp: Date.now(),
+        label: 'Starting inference',
+        detail: `Using ${this.localProvider?.modelId || 'local model'}`,
+      });
+
+      // Switch to responding state
+      this.setState('responding');
+      this.events.emit('typing', { groupId, typing: false });
+
+      const tempId = 'streaming-' + Date.now();
+      let fullResponse = '';
+
+      // Stream tokens with throttling
+      let lastUpdate = Date.now();
+      const UPDATE_INTERVAL = 100; // Update every 100ms max
+
+      for await (const token of this.localProvider!.chatStream(messages, {
+        maxTokens: Math.min(this.maxTokens, 1024),
+        systemPrompt: systemPrompt,
+      })) {
+        // Check for abort
+        if (this._abortStreaming) {
+          fullResponse += ' [stopped]';
+          break;
+        }
+
+        fullResponse += token;
+
+        const now = Date.now();
+        if (now - lastUpdate > UPDATE_INTERVAL) {
+          this.events.emit('message', {
+            id: tempId,
+            groupId,
+            sender: this.assistantName,
+            content: fullResponse,
+            timestamp: Date.now(),
+            channel: groupId.startsWith('tg:') ? 'telegram' : 'browser',
+            isFromMe: true,
+            isTrigger: false,
+          } as StoredMessage);
+          lastUpdate = now;
+        }
+      }
+
+      // Final update with complete response
+      await this.deliverResponse(groupId, fullResponse);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Don't show error if aborted intentionally
+      if (errorMsg === 'Aborted' || this._abortStreaming) {
+        this.events.emit('streaming-aborted', { groupId });
+      } else {
+        this.events.emit('error', {
+          groupId,
+          error: `Local model error: ${errorMsg}`,
+        });
+      }
+      
+      this.events.emit('typing', { groupId, typing: false });
+      this.setState('idle');
+    }
   }
 
   private async handleWorkerMessage(msg: WorkerOutbound): Promise<void> {
@@ -480,10 +713,8 @@ export class Orchestrator {
   }
 
   private async handleCompactDone(groupId: string, summary: string): Promise<void> {
-    // Clear old messages
     await clearGroupMessages(groupId);
 
-    // Save the summary as a system-style message from the assistant
     const stored: StoredMessage = {
       id: ulid(),
       groupId,
@@ -502,7 +733,6 @@ export class Orchestrator {
   }
 
   private async deliverResponse(groupId: string, text: string): Promise<void> {
-    // Save to DB
     const stored: StoredMessage = {
       id: ulid(),
       groupId,
@@ -515,16 +745,13 @@ export class Orchestrator {
     };
     await saveMessage(stored);
 
-    // Route to channel
     await this.router.send(groupId, text);
 
-    // Play notification chime for scheduled task responses
     if (this.pendingScheduledTasks.has(groupId)) {
       this.pendingScheduledTasks.delete(groupId);
       playNotificationChime();
     }
 
-    // Emit for UI
     this.events.emit('message', stored);
     this.events.emit('typing', { groupId, typing: false });
 
@@ -537,25 +764,46 @@ export class Orchestrator {
 // System prompt builder
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(assistantName: string, memory: string): string {
+function buildSystemPrompt(
+  assistantName: string, 
+  memory: string,
+  providerType: ProviderType = 'claude'
+): string {
   const parts = [
     `You are ${assistantName}, a personal AI assistant running in the user's browser.`,
-    '',
-    'You have access to the following tools:',
-    '- **bash**: Execute commands in a sandboxed Linux VM (Alpine). Use for scripts, text processing, package installation.',
-    '- **javascript**: Execute JavaScript code. Lighter than bash — no VM boot needed. Use for calculations, data transforms.',
-    '- **read_file** / **write_file** / **list_files**: Manage files in the group workspace (persisted in browser storage).',
-    '- **fetch_url**: Make HTTP requests (subject to CORS).',
-    '- **update_memory**: Persist important context to CLAUDE.md — loaded on every conversation.',
-    '- **create_task**: Schedule recurring tasks with cron expressions.',
-    '',
-    'Guidelines:',
-    '- Be concise and direct.',
-    '- Use tools proactively when they help answer the question.',
-    '- Update memory when you learn important preferences or context.',
-    '- For scheduled tasks, confirm the schedule with the user.',
-    '- Strip <internal> tags from your responses — they are for your internal reasoning only.',
   ];
+  
+  if (providerType === 'onnx') {
+    // Local model - simple chat mode, no tools
+    parts.push(
+      '',
+      'You are a helpful AI assistant. You can have conversations, answer questions, and help with various tasks.',
+      '',
+      'Guidelines:',
+      '- Be helpful, friendly, and concise.',
+      '- If you don\'t know something, say so honestly.',
+      '- You cannot execute commands, create files, or access the internet.',
+      '- For tasks requiring those capabilities, suggest the user switch to Claude mode.',
+    );
+  } else {
+    // Claude - full tool access
+    parts.push(
+      '',
+      'You have access to the following tools:',
+      '- **bash**: Execute commands in a sandboxed Linux VM (Alpine).',
+      '- **javascript**: Execute JavaScript code.',
+      '- **read_file** / **write_file** / **list_files**: Manage files.',
+      '- **fetch_url**: Make HTTP requests.',
+      '- **update_memory**: Persist important context.',
+      '- **create_task**: Schedule recurring tasks.',
+      '',
+      'Guidelines:',
+      '- Be concise and direct.',
+      '- Use tools proactively when they help answer the question.',
+      '- Update memory when you learn important preferences.',
+      '- Strip <internal> tags from your responses.',
+    );
+  }
 
   if (memory) {
     parts.push('', '## Persistent Memory', '', memory);
@@ -564,8 +812,27 @@ function buildSystemPrompt(assistantName: string, memory: string): string {
   return parts.join('\n');
 }
 
+/**
+ * Strip HTML from text
+ */
+function stripHtml(html: string): string {
+  let text = html;
+  text = text.replace(/<(script|style|noscript|svg|head)[^>]*>[\s\S]*?<\/\1>/gi, '');
+  text = text.replace(/<!--[\s\S]*?-->/g, '');
+  text = text.replace(/<[^>]+>/g, ' ');
+  text = text.replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#\d+;/g, '');
+  text = text.replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
+  return text;
+}
+
 // ---------------------------------------------------------------------------
-// Notification chime (Web Audio API — no external files needed)
+// Notification chime
 // ---------------------------------------------------------------------------
 
 function playNotificationChime(): void {
@@ -573,7 +840,6 @@ function playNotificationChime(): void {
     const ctx = new AudioContext();
     const now = ctx.currentTime;
 
-    // Two-tone chime: C5 → E5
     const frequencies = [523.25, 659.25];
     for (let i = 0; i < frequencies.length; i++) {
       const osc = ctx.createOscillator();
@@ -592,9 +858,6 @@ function playNotificationChime(): void {
       osc.stop(now + i * 0.15 + 0.4);
     }
 
-    // Clean up context after sounds finish
     setTimeout(() => ctx.close(), 1000);
-  } catch {
-    // AudioContext may not be available — fail silently
-  }
+  } catch {}
 }

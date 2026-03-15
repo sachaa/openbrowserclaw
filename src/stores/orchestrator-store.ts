@@ -25,12 +25,23 @@ interface OrchestratorStoreState {
   activeGroupId: string;
   ready: boolean;
 
+  // --- provider state ---
+  providerType: 'claude' | 'onnx';
+  providerLoading: boolean;
+  providerLoadProgress: number;
+  providerLoadStatus: string;
+
+  // --- streaming state ---
+  streamingContent: string;
+  isStreaming: boolean;
+
   // --- actions ---
   sendMessage: (text: string) => void;
   newSession: () => Promise<void>;
   compactContext: () => Promise<void>;
   clearError: () => void;
   loadHistory: () => Promise<void>;
+  abortStreaming: () => void;
 }
 
 let orchestratorInstance: Orchestrator | null = null;
@@ -50,6 +61,16 @@ export const useOrchestratorStore = create<OrchestratorStoreState>((set, get) =>
   error: null,
   activeGroupId: DEFAULT_GROUP_ID,
   ready: false,
+
+  // Provider state
+  providerType: 'claude',
+  providerLoading: false,
+  providerLoadProgress: 0,
+  providerLoadStatus: '',
+
+  // Streaming state
+  streamingContent: '',
+  isStreaming: false,
 
   sendMessage: (text) => {
     const orch = getOrchestrator();
@@ -72,6 +93,12 @@ export const useOrchestratorStore = create<OrchestratorStoreState>((set, get) =>
     const msgs = await getRecentMessages(get().activeGroupId, 200);
     set({ messages: msgs });
   },
+
+  abortStreaming: () => {
+    const orch = getOrchestrator();
+    orch.abortStreaming();
+    set({ isStreaming: false });
+  },
 }));
 
 /**
@@ -82,9 +109,28 @@ export async function initOrchestratorStore(orch: Orchestrator): Promise<void> {
   orchestratorInstance = orch;
   const store = useOrchestratorStore;
 
+  // Set initial provider type
+  store.setState({ providerType: orch.getProviderType() });
+
   // Subscribe to events
   orch.events.on('message', (msg) => {
-    store.setState((s) => ({ messages: [...s.messages, msg] }));
+    const msgId = msg.id as string;
+    
+    // Check if this is a streaming message (starts with 'streaming-')
+    if (msgId.startsWith('streaming-')) {
+      // Update streaming content only, don't add to messages array
+      store.setState({ 
+        streamingContent: msg.content,
+        isStreaming: true 
+      });
+    } else {
+      // Regular message - add to history and clear streaming
+      store.setState((s) => ({ 
+        messages: [...s.messages, msg],
+        streamingContent: '',
+        isStreaming: false,
+      }));
+    }
   });
 
   orch.events.on('typing', ({ typing }) => {
@@ -110,7 +156,7 @@ export async function initOrchestratorStore(orch: Orchestrator): Promise<void> {
   orch.events.on('state-change', (state) => {
     store.setState({ state });
     if (state === 'idle') {
-      store.setState({ toolActivity: null });
+      store.setState({ toolActivity: null, isStreaming: false, streamingContent: '' });
     }
   });
 
@@ -125,6 +171,8 @@ export async function initOrchestratorStore(orch: Orchestrator): Promise<void> {
       tokenUsage: null,
       toolActivity: null,
       isTyping: false,
+      streamingContent: '',
+      isStreaming: false,
     });
   });
 
@@ -139,6 +187,18 @@ export async function initOrchestratorStore(orch: Orchestrator): Promise<void> {
 
   orch.events.on('ready', () => {
     store.setState({ ready: true });
+  });
+
+  orch.events.on('streaming-aborted', () => {
+    store.setState({ isStreaming: false, streamingContent: '' });
+  });
+
+  orch.events.on('provider-loading', (data) => {
+    store.setState({
+      providerLoading: data.loading,
+      providerLoadProgress: data.progress,
+      providerLoadStatus: data.status,
+    });
   });
 
   // Load initial history
