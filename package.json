@@ -1,6 +1,6 @@
 {
   "name": "openbrowserclaw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Browser-native personal AI assistant. Zero infrastructure — the browser is the server.",
@@ -23,6 +23,7 @@
     "vite-plugin-pwa": "^0.21.0"
   },
   "dependencies": {
+    "@huggingface/transformers": "next",
     "lucide-react": "^0.575.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
